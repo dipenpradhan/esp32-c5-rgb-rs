@@ -6,6 +6,7 @@ edition = "2021"
 [features]
 default = []
 async = ["dep:embassy-executor"]
+webserver = ["async", "dep:esp-radio", "dep:esp-rtos", "dep:embassy-net", "dep:embassy-time", "dep:embedded-io-async", "dep:esp-println"]
 
 [dependencies]
 esp-hal = { version = "1.1", features = ["esp32c5", "unstable"] }
@@ -16,6 +17,14 @@ serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
 
 # Async runtime (enabled with --features async)
 embassy-executor = { version = "0.7", features = ["arch-spin", "task-arena-size-8192", "executor-thread"], optional = true }
+embassy-time = { version = "0.5", features = ["tick-hz-1_000_000"], optional = true }
+embedded-io-async = { version = "0.7", optional = true }
+esp-println = { version = "0.17", features = ["esp32c5"], optional = true }
+
+# Web server stack (enabled with --features webserver)
+esp-radio = { version = "1.0.0-beta.0", features = ["esp32c5", "wifi", "esp-alloc"], optional = true }
+esp-rtos = { version = "0.3", features = ["esp32c5", "esp-radio", "esp-alloc"], optional = true }
+embassy-net = { version = "0.9", features = ["tcp", "udp", "dhcpv4"], optional = true }
 
 [profile.dev]
 debug = true

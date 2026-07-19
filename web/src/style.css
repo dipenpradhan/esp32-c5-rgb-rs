@@ -53,64 +53,257 @@ h1 {
   margin-bottom: 0.75rem;
 }
 
+/* ── LED Preview ────────────────────────────────────────────── */
+
 .led-preview {
   display: flex;
   justify-content: center;
-  gap: 1rem;
-  margin-bottom: 1rem;
+  align-items: center;
+  gap: 1.5rem;
+  margin-bottom: 0.5rem;
 }
 
 .led {
-  width: 48px;
-  height: 48px;
+  width: 56px;
+  height: 56px;
   border-radius: 50%;
   border: 2px solid rgba(255, 255, 255, 0.1);
-  transition: background-color 0.2s ease, box-shadow 0.2s ease;
+  transition: background-color 0.1s ease;
 }
 
-.form-group {
+.preview-info {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  margin-bottom: 1rem;
+  min-width: 140px;
 }
 
-.form-group label {
+#stepLabel {
   font-size: 0.85rem;
   color: #aaa;
 }
 
-.form-group select,
-.form-group input {
+.preview-controls {
+  display: flex;
+  gap: 0.4rem;
+}
+
+/* ── Effects List ───────────────────────────────────────────── */
+
+.empty-msg {
+  text-align: center;
+  color: #666;
+  font-size: 0.9rem;
+  padding: 1rem 0;
+}
+
+.effect-item {
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 0.5rem 0.75rem;
-  color: var(--text);
-  font-size: 0.9rem;
-  outline: none;
+  border-radius: 6px;
+  padding: 0.75rem;
+  margin-bottom: 0.5rem;
 }
 
-.form-group select:focus,
-.form-group input:focus {
-  border-color: var(--accent);
-}
-
-.color-row {
+.effect-header {
   display: flex;
+  align-items: center;
   gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.effect-tag {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.blink-tag {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.blend-tag {
+  background: #4361ee;
+  color: #fff;
+}
+
+.effect-info {
+  font-size: 0.8rem;
+  color: #888;
+  flex: 1;
+}
+
+.btn-remove {
+  background: none;
+  border: none;
+  color: var(--danger);
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0 0.25rem;
+  flex: unset;
+}
+
+.btn-remove:hover {
+  color: #ff6b6b;
+}
+
+/* ── Blink color strip ──────────────────────────────────────── */
+
+.color-strip {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.chip-wrap {
+  display: flex;
   align-items: center;
 }
 
-.color-row input[type="color"] {
-  width: 40px;
-  height: 36px;
-  padding: 2px;
+.chip-wrap input[type="color"] {
+  width: 32px;
+  height: 32px;
+  padding: 1px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
   cursor: pointer;
+  background: transparent;
 }
 
-.color-row input[type="number"] {
+.chip-wrap input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.chip-wrap input[type="color"]::-webkit-color-swatch {
+  border: none;
+  border-radius: 2px;
+}
+
+/* ── Blend row ──────────────────────────────────────────────── */
+
+.blend-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.color-block {
   flex: 1;
+  border-radius: 6px;
+  padding: 0.5rem;
+  text-align: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.color-block label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  color: #888;
+  display: block;
+  margin-bottom: 0.35rem;
+}
+
+.color-block input[type="color"] {
+  width: 100%;
+  height: 36px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  cursor: pointer;
+  background: transparent;
+}
+
+.color-block input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+
+.color-block input[type="color"]::-webkit-color-swatch {
+  border: none;
+  border-radius: 2px;
+}
+
+.color-swatch {
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  margin-top: 4px;
+}
+
+.blend-arrow {
+  font-size: 1.5rem;
+  color: #666;
+}
+
+.effect-fields {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.field-pair {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.field-pair label {
+  font-size: 0.75rem;
+  color: #888;
+}
+
+.field-pair input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.35rem 0.5rem;
+  color: var(--text);
+  font-size: 0.85rem;
+  outline: none;
+  width: 100%;
+}
+
+.field-pair input:focus {
+  border-color: var(--accent);
+}
+
+.field-inline {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+}
+
+.field-inline label {
+  font-size: 0.75rem;
+  color: #888;
+}
+
+.field-inline input {
+  width: 70px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.35rem 0.5rem;
+  color: var(--text);
+  font-size: 0.85rem;
+  outline: none;
+}
+
+.field-inline input:focus {
+  border-color: var(--accent);
+}
+
+/* ── Buttons ────────────────────────────────────────────────── */
+
+.effect-controls {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
 }
 
 .btn-row {
@@ -127,6 +320,18 @@ button {
   font-weight: 600;
   cursor: pointer;
   transition: background 0.15s ease;
+}
+
+.btn-sm {
+  flex: unset;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.78rem;
+}
+
+.btn-xs {
+  flex: unset;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.7rem;
 }
 
 .btn-primary {
@@ -149,6 +354,24 @@ button {
   color: var(--accent);
 }
 
+.btn-add-color,
+.btn-remove-color {
+  flex: unset;
+  padding: 0.25rem 0.6rem;
+  font-size: 0.75rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.btn-add-color:hover,
+.btn-remove-color:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ── JSON Output ────────────────────────────────────────────── */
+
 .preview-text {
   font-family: monospace;
   font-size: 0.8rem;
@@ -159,6 +382,6 @@ button {
   white-space: pre-wrap;
   word-break: break-all;
   color: #888;
-  max-height: 160px;
+  max-height: 200px;
   overflow-y: auto;
 }
