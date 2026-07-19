@@ -14,29 +14,30 @@ webserver = [
   "dep:embassy-time",
   "dep:embedded-io-async",
   "dep:esp-println",
-  "dep:static_cell",
   "dep:esp-backtrace",
+  "dep:reqwless",
 ]
 
 [dependencies]
-esp-hal = { version = "1.1", features = ["esp32c5", "unstable"] }
-esp-bootloader-esp-idf = { version = "0.5", features = ["esp32c5"] }
-esp-alloc = { version = "0.10", features = ["esp32c5"] }
+esp-hal = { git = "https://github.com/esp-rs/esp-hal", features = ["esp32c5", "unstable"] }
+esp-bootloader-esp-idf = { git = "https://github.com/esp-rs/esp-hal", features = ["esp32c5"] }
+esp-alloc = { git = "https://github.com/esp-rs/esp-hal", features = ["esp32c5"] }
 serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
 serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
+static_cell = "2.1"
 
 # Async runtime (enabled with --features async)
-embassy-executor = { version = "0.10", features = ["platform-spin"], optional = true }
+embassy-executor = { version = "0.10", optional = true }
 
 # Web server stack (enabled with --features webserver)
-esp-radio = { version = "1.0.0-beta.0", features = ["esp32c5", "wifi"], optional = true }
-esp-rtos = { version = "0.3", features = ["esp32c5", "esp-radio", "esp-alloc", "embassy"], optional = true }
-embassy-net = { version = "0.9", features = ["tcp", "udp", "dhcpv4", "medium-ethernet"], optional = true }
+esp-radio = { git = "https://github.com/esp-rs/esp-hal", features = ["esp32c5", "wifi"], optional = true }
+esp-rtos = { git = "https://github.com/esp-rs/esp-hal", features = ["esp32c5", "esp-radio", "esp-alloc", "embassy"], optional = true }
+embassy-net = { version = "0.9", features = ["tcp", "udp", "dhcpv4", "medium-ethernet", "dns"], optional = true }
 embassy-time = { version = "0.5", features = ["tick-hz-1_000_000"], optional = true }
 embedded-io-async = { version = "0.7", optional = true }
-esp-println = { version = "0.17", features = ["esp32c5", "log-04"], optional = true }
-static_cell = { version = "2.1", optional = true }
-esp-backtrace = { version = "0.19", features = ["esp32c5", "panic-handler", "println"], optional = true }
+esp-println = { git = "https://github.com/esp-rs/esp-hal", features = ["esp32c5", "log-04"], optional = true }
+esp-backtrace = { git = "https://github.com/esp-rs/esp-hal", features = ["esp32c5", "panic-handler", "println"], optional = true }
+reqwless = { version = "0.14", default-features = false, optional = true }
 
 [profile.dev]
 debug = true
