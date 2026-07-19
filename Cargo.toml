@@ -3,12 +3,19 @@ name = "esp-c5-hello"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = []
+async = ["dep:embassy-executor"]
+
 [dependencies]
 esp-hal = { version = "1.1", features = ["esp32c5", "unstable"] }
 esp-bootloader-esp-idf = { version = "0.5", features = ["esp32c5"] }
 esp-alloc = { version = "0.10", features = ["esp32c5"] }
 serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
 serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
+
+# Async runtime (enabled with --features async)
+embassy-executor = { version = "0.7", features = ["arch-spin", "task-arena-size-8192", "executor-thread"], optional = true }
 
 [profile.dev]
 debug = true
