@@ -1,0 +1,55 @@
+# Build artifacts
+.embuild/
+esp32-build/build/
+esp32-build/*.bin
+esp32-build/*.elf
+esp32-build/*.map
+
+# ESP-IDF generated files
+esp32-build/esp-idf/
+
+# Logs
+esp32-build/build/log/
+esp32-build/build/*.log
+
+# SDK config backups
+esp32-build/sdkconfig.old
+esp32-build/.config_*
+
+# CMake cache
+esp32-build/build/CMakeCache.txt
+esp32-build/build/Makefile
+esp32-build/build/compilation_database.json
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# AI files
+.ai_files
+
+# Subagent artifacts (debug output)
+.pi-subagents/
+.pi
+
+# Rust build artifacts (if any)
+target/
+*.rs.bk
+serial_simulator/.cargo/
+serial_simulator/Cargo.lock
+
+# Node.js / TypeScript build
+web/dist/
+web/node_modules/
+
+# Watchdog / runtime
+watchdog.log
+watchdog.sh
+.watchdog_state

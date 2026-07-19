@@ -1,0 +1,28 @@
+{
+  "effects": [
+    {
+      "type": "blink",
+      "colors": [[255, 0, 0], [0, 255, 0], [0, 0, 255]],
+      "duration_ms": 300
+    },
+    {
+      "type": "blend",
+      "from": [255, 0, 0],
+      "to": [0, 255, 255],
+      "steps": 20,
+      "step_ms": 100
+    },
+    {
+      "type": "blink",
+      "colors": [[255, 255, 255], [0, 0, 0]],
+      "duration_ms": 200
+    },
+    {
+      "type": "blend",
+      "from": [0, 255, 0],
+      "to": [255, 0, 255],
+      "steps": 15,
+      "step_ms": 80
+    }
+  ]
+}
