@@ -49,8 +49,8 @@ unsafe extern "C" fn _embassy_time_schedule_wake(_t: u64) {
 // ── WiFi credentials ───────────────────────────────────────────
 // ⚠️  CHANGE THESE before flashing!
 
-const WIFI_SSID: &str = "YOUR_WIFI_SSID";
-const WIFI_PASS: &str = "YOUR_WIFI_PASSWORD";
+const WIFI_SSID: &str = "WiFi";
+const WIFI_PASS: &str = "password";
 
 // ── Embedded web page ──────────────────────────────────────────
 
