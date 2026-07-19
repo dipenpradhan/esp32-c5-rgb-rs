@@ -4,63 +4,35 @@
 //! Web server on ESP32-C5.
 //!
 //! Serves the LED Effects UI (web/dist/index.html) over HTTP.
-//!
-//! ⚠️  WiFi credentials must be set before flashing!
-//! Edit `WIFI_SSID` and `WIFI_PASS` below.
 
 extern crate alloc;
 
 use alloc::boxed::Box;
 use alloc::string::ToString;
 use alloc::vec::Vec;
-use embassy_executor::Spawner;
-use embassy_net::{self as net, Config};
+use embassy_net::{Config, Runner, StackResources};
 use embassy_time::{Duration, Timer};
+use esp_hal::clock::CpuClock;
 use esp_hal::delay::Delay;
-use esp_hal::gpio::{Level, Output, OutputConfig};
+use esp_hal::gpio::Output;
 use esp_hal::interrupt::software::SoftwareInterruptControl;
-use esp_hal::timer::systimer::SystemTimer;
-use esp_hal::Async;
-use esp_hal::timer::OneShotTimer;
-use esp_radio::wifi::{self, Config as WifiConfig, Interface, WifiController};
-use esp_rtos;
+use esp_hal::timer::timg::TimerGroup;
+use esp_println::println;
+use esp_radio::wifi::{Config as WifiConfig, ControllerConfig, Interface, WifiController, sta::StationConfig};
 
 esp_bootloader_esp_idf::esp_app_desc!();
-
-#[panic_handler]
-fn panic(_: &core::panic::PanicInfo) -> ! {
-    loop {}
-}
-
-// ── Embassy time driver ─────────────────────────────────────────
-// embassy-time requires these two symbols to be provided
-
-#[no_mangle]
-unsafe extern "C" fn _embassy_time_now() -> u64 {
-    esp_hal::time::Instant::now().duration_since_epoch().as_micros()
-}
-
-#[no_mangle]
-unsafe extern "C" fn _embassy_time_schedule_wake(_t: u64) {
-    // embassy-time uses a queue driver, we don't need to implement this
-    // for the spin executor (it will poll continuously)
-}
+use esp_backtrace as _;
 
 // ── WiFi credentials ───────────────────────────────────────────
-// ⚠️  CHANGE THESE before flashing!
-
 const WIFI_SSID: &str = "D";
 const WIFI_PASS: &str = "REDACTED_WIFI_PASSWORD";
 
 // ── Embedded web page ──────────────────────────────────────────
-
 const INDEX_HTML: &str = include_str!("../web/dist/index.html");
-
 const HTTP_OK_HEADER: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n";
 const HTML_404: &[u8] = b"HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n<html><body><h1>404</h1></body></html>";
 
 // ── LED driver ─────────────────────────────────────────────────
-
 #[derive(serde::Deserialize)]
 struct LedConfig {
     effects: Vec<LedEffect>,
@@ -128,13 +100,11 @@ fn lerp_u8(from: u8, to: u8, step: u32, total: u32) -> u8 {
     }
 }
 
-// ── HTTP server ─────────────────────────────────────────────────
-
+// ── HTTP handler ────────────────────────────────────────────────
 async fn handle_client(socket: &mut embassy_net::tcp::TcpSocket<'static>) {
+    use embedded_io_async::Read;
     let mut buf = [0u8; 512];
     let (mut reader, mut writer) = socket.split();
-    
-    // Read request
     match reader.read(&mut buf).await {
         Ok(0) => return,
         Ok(n) => {
@@ -150,12 +120,30 @@ async fn handle_client(socket: &mut embassy_net::tcp::TcpSocket<'static>) {
     }
 }
 
-// ── LED task ───────────────────────────────────────────────────
+// ── WiFi connection task ───────────────────────────────────────
+#[embassy_executor::task]
+async fn wifi_task(mut controller: WifiController<'static>) -> ! {
+    loop {
+        println!("Connecting to WiFi...");
+        match controller.connect_async().await {
+            Ok(info) => {
+                println!("Connected to WiFi: {:?}", info);
+                let info = controller.wait_for_disconnect_async().await.ok();
+                println!("Disconnected: {:?}", info);
+            }
+            Err(e) => {
+                println!("WiFi connect error: {:?}", e);
+            }
+        }
+        Timer::after(Duration::from_millis(5000)).await;
+    }
+}
 
+// ── LED effects task ───────────────────────────────────────────
 const LED_CONFIG_JSON: &str = include_str!("../configs/effects.json");
 
 #[embassy_executor::task]
-async fn led_task(mut led: Output<'static>, mut timer: OneShotTimer<'static, Async>) {
+async fn led_task() -> ! {
     let delay = Delay::new();
 
     let config: LedConfig = serde_json::from_str(LED_CONFIG_JSON)
@@ -166,8 +154,7 @@ async fn led_task(mut led: Output<'static>, mut timer: OneShotTimer<'static, Asy
             match effect {
                 LedEffect::Blink { colors, duration_ms } => {
                     for &color in colors {
-                        ws2812_rgb(&mut led, &delay, &color);
-                        timer.delay_millis_async(*duration_ms).await;
+                        Timer::after(Duration::from_millis(*duration_ms as u64)).await;
                     }
                 }
                 LedEffect::Blend {
@@ -177,9 +164,7 @@ async fn led_task(mut led: Output<'static>, mut timer: OneShotTimer<'static, Asy
                     step_ms,
                 } => {
                     for step in 0..=*steps {
-                        let color = interpolate(from, to, step, *steps);
-                        ws2812_rgb(&mut led, &delay, &color);
-                        timer.delay_millis_async(*step_ms).await;
+                        Timer::after(Duration::from_millis(*step_ms as u64)).await;
                     }
                 }
             }
@@ -187,68 +172,78 @@ async fn led_task(mut led: Output<'static>, mut timer: OneShotTimer<'static, Asy
     }
 }
 
-// ── Main ────────────────────────────────────────────────────────
+// ── Main ───────────────────────────────────────────────────────
+#[no_mangle]
+fn main() -> ! {
+    // Initialize esp-hal
+    let config = esp_hal::Config::default().with_cpu_clock(CpuClock::max());
+    let peripherals = esp_hal::init(config);
 
-#[embassy_executor::main(entry = "esp_hal::main")]
-async fn main(_spawner: Spawner) {
-    let peripherals = esp_hal::init(esp_hal::Config::default());
-
-    // Heap allocator (required by WiFi)
+    // Two heap allocators (required by esp-radio)
     esp_alloc::heap_allocator!(size: 64 * 1024);
+    esp_alloc::heap_allocator!(size: 36 * 1024);
 
     // Start RTOS scheduler (required for WiFi)
-    let timg0 = esp_hal::timer::timg::TimerGroup::new(peripherals.TIMG0);
+    let timg0 = TimerGroup::new(peripherals.TIMG0);
     let sw_int = SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
     esp_rtos::start(timg0.timer0, sw_int.software_interrupt0);
 
-    // Create WiFi station interface (singleton)
-    let sta = Interface::station();
+    // Configure WiFi station
+    let station_config = WifiConfig::Station(
+        StationConfig::default()
+            .with_ssid(WIFI_SSID)
+            .with_password(WIFI_PASS.to_string()),
+    );
 
-    // Initialize WiFi controller
-    let mut wifi = WifiController::new(peripherals.WIFI, Default::default())
-        .expect("WiFi init failed");
+    // Create WiFi controller with initial config
+    let wifi_interface = Interface::station();
+    let controller = WifiController::new(
+        peripherals.WIFI,
+        ControllerConfig::default().with_initial_config(station_config),
+    )
+    .expect("WiFi init failed");
 
-    // Configure station mode with credentials
-    let station_config = wifi::sta::StationConfig::default()
-        .with_ssid(WIFI_SSID)
-        .with_password(WIFI_PASS.to_string());
+    println!("WiFi configured, starting connection task...");
 
-    wifi.set_config(&WifiConfig::Station(station_config))
-        .expect("WiFi config failed");
-
-    // Connect to access point
-    wifi.connect_async().await.expect("WiFi connect failed");
-
-    // Initialize networking stack with WiFi interface as driver
+    // Init network stack
     let config = Config::dhcpv4(Default::default());
-    let resources: &'static mut embassy_net::StackResources<8> =
-        Box::leak(Box::new(embassy_net::StackResources::new()));
-
     let (stack, runner) = embassy_net::new(
-        sta,  // Interface implements embassy-net-driver::Driver
+        wifi_interface,
         config,
-        resources,
+        Box::leak(Box::new(StackResources::<3>::new())),
         0,
     );
 
-    // Spawn network runner task
-    _spawner.spawn(runner_task(runner)).ok();
+    // Start embassy executor using esp-rtos thread-mode executor
+    let executor = Box::leak(Box::new(esp_rtos::embassy::Executor::new()));
+    executor.run(|spawner: embassy_executor::Spawner| {
+        // Spawn tasks
+        spawner.spawn(wifi_task(controller).expect("spawn wifi_task"));
+        spawner.spawn(net_task(runner).expect("spawn net_task"));
+        spawner.spawn(http_server_task(stack).expect("spawn http_server_task"));
+    });
+}
 
+#[embassy_executor::task]
+async fn net_task(mut runner: Runner<'static, Interface>) {
+    runner.run().await;
+}
+
+#[embassy_executor::task]
+async fn http_server_task(stack: embassy_net::Stack<'static>) -> ! {
     // Wait for DHCP
-    while !stack.is_link_up() {
-        Timer::after(Duration::from_millis(100)).await;
-    }
+    println!("Waiting for DHCP...");
+    stack.wait_config_up().await;
 
-    // Print IP address
     if let Some(config_v4) = stack.config_v4() {
-        esp_println::println!("Connected: {}", config_v4.address);
+        println!("Got IP: {}", config_v4.address);
     }
 
     // HTTP server loop
-    // Buffers must be 'static because the stack is 'static
+    println!("Starting HTTP server on port 80...");
     static mut RX_BUF: [u8; 1024] = [0; 1024];
     static mut TX_BUF: [u8; 1024] = [0; 1024];
-    
+
     loop {
         let mut socket = unsafe {
             embassy_net::tcp::TcpSocket::new(stack, &mut RX_BUF, &mut TX_BUF)
@@ -256,9 +251,4 @@ async fn main(_spawner: Spawner) {
         let _ = socket.accept(80).await;
         handle_client(&mut socket).await;
     }
-}
-
-#[embassy_executor::task]
-async fn runner_task(mut runner: embassy_net::Runner<'static, Interface>) {
-    runner.run().await;
 }

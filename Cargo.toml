@@ -6,7 +6,17 @@ edition = "2021"
 [features]
 default = []
 async = ["dep:embassy-executor"]
-webserver = ["async", "dep:esp-radio", "dep:esp-rtos", "dep:embassy-net", "dep:embassy-time", "dep:embedded-io-async", "dep:esp-println"]
+webserver = [
+  "async",
+  "dep:esp-radio",
+  "dep:esp-rtos",
+  "dep:embassy-net",
+  "dep:embassy-time",
+  "dep:embedded-io-async",
+  "dep:esp-println",
+  "dep:static_cell",
+  "dep:esp-backtrace",
+]
 
 [dependencies]
 esp-hal = { version = "1.1", features = ["esp32c5", "unstable"] }
@@ -16,15 +26,17 @@ serde = { version = "1.0", default-features = false, features = ["derive", "allo
 serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
 
 # Async runtime (enabled with --features async)
-embassy-executor = { version = "0.7", features = ["arch-spin", "task-arena-size-8192", "executor-thread"], optional = true }
-embassy-time = { version = "0.5", features = ["tick-hz-1_000_000"], optional = true }
-embedded-io-async = { version = "0.7", optional = true }
-esp-println = { version = "0.17", features = ["esp32c5"], optional = true }
+embassy-executor = { version = "0.10", features = ["platform-spin"], optional = true }
 
 # Web server stack (enabled with --features webserver)
-esp-radio = { version = "1.0.0-beta.0", features = ["esp32c5", "wifi", "esp-alloc"], optional = true }
-esp-rtos = { version = "0.3", features = ["esp32c5", "esp-radio", "esp-alloc"], optional = true }
-embassy-net = { version = "0.9", features = ["tcp", "udp", "dhcpv4"], optional = true }
+esp-radio = { version = "1.0.0-beta.0", features = ["esp32c5", "wifi"], optional = true }
+esp-rtos = { version = "0.3", features = ["esp32c5", "esp-radio", "esp-alloc", "embassy"], optional = true }
+embassy-net = { version = "0.9", features = ["tcp", "udp", "dhcpv4", "medium-ethernet"], optional = true }
+embassy-time = { version = "0.5", features = ["tick-hz-1_000_000"], optional = true }
+embedded-io-async = { version = "0.7", optional = true }
+esp-println = { version = "0.17", features = ["esp32c5", "log-04"], optional = true }
+static_cell = { version = "2.1", optional = true }
+esp-backtrace = { version = "0.19", features = ["esp32c5", "panic-handler", "println"], optional = true }
 
 [profile.dev]
 debug = true
