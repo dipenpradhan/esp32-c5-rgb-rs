@@ -49,8 +49,8 @@ unsafe extern "C" fn _embassy_time_schedule_wake(_t: u64) {
 // ── WiFi credentials ───────────────────────────────────────────
 // ⚠️  CHANGE THESE before flashing!
 
-const WIFI_SSID: &str = "WiFi";
-const WIFI_PASS: &str = "password";
+const WIFI_SSID: &str = "D";
+const WIFI_PASS: &str = "REDACTED_WIFI_PASSWORD";
 
 // ── Embedded web page ──────────────────────────────────────────
 
@@ -190,7 +190,7 @@ async fn led_task(mut led: Output<'static>, mut timer: OneShotTimer<'static, Asy
 // ── Main ────────────────────────────────────────────────────────
 
 #[embassy_executor::main(entry = "esp_hal::main")]
-async fn main(spawner: Spawner) {
+async fn main(_spawner: Spawner) {
     let peripherals = esp_hal::init(esp_hal::Config::default());
 
     // Heap allocator (required by WiFi)
@@ -232,7 +232,7 @@ async fn main(spawner: Spawner) {
     );
 
     // Spawn network runner task
-    spawner.spawn(runner_task(runner)).ok();
+    _spawner.spawn(runner_task(runner)).ok();
 
     // Wait for DHCP
     while !stack.is_link_up() {
@@ -243,16 +243,6 @@ async fn main(spawner: Spawner) {
     if let Some(config_v4) = stack.config_v4() {
         esp_println::println!("Connected: {}", config_v4.address);
     }
-
-    // Initialize LED
-    let led_config = OutputConfig::default();
-    let led = Output::new(peripherals.GPIO27, Level::Low, led_config);
-
-    let systimer = SystemTimer::new(peripherals.SYSTIMER);
-    let timer = OneShotTimer::new(systimer.alarm0).into_async();
-
-    // Spawn LED task
-    spawner.spawn(led_task(led, timer)).ok();
 
     // HTTP server loop
     // Buffers must be 'static because the stack is 'static
