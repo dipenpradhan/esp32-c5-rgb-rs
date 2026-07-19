@@ -1,0 +1,164 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --bg: #1a1a2e;
+  --surface: #16213e;
+  --border: #0f3460;
+  --text: #e0e0e0;
+  --accent: #00d4aa;
+  --accent-dim: #00a388;
+  --danger: #e94560;
+}
+
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  padding: 2rem;
+}
+
+#app {
+  width: 100%;
+  max-width: 480px;
+}
+
+h1 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  text-align: center;
+  margin-bottom: 1.5rem;
+  color: var(--accent);
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1.25rem;
+  margin-bottom: 1rem;
+}
+
+.card h2 {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #888;
+  margin-bottom: 0.75rem;
+}
+
+.led-preview {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.led {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  transition: background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.form-group label {
+  font-size: 0.85rem;
+  color: #aaa;
+}
+
+.form-group select,
+.form-group input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.5rem 0.75rem;
+  color: var(--text);
+  font-size: 0.9rem;
+  outline: none;
+}
+
+.form-group select:focus,
+.form-group input:focus {
+  border-color: var(--accent);
+}
+
+.color-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.color-row input[type="color"] {
+  width: 40px;
+  height: 36px;
+  padding: 2px;
+  cursor: pointer;
+}
+
+.color-row input[type="number"] {
+  flex: 1;
+}
+
+.btn-row {
+  display: flex;
+  gap: 0.75rem;
+}
+
+button {
+  flex: 1;
+  padding: 0.65rem 1rem;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.btn-primary:hover {
+  background: var(--accent-dim);
+}
+
+.btn-secondary {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.btn-secondary:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.preview-text {
+  font-family: monospace;
+  font-size: 0.8rem;
+  background: var(--bg);
+  border-radius: 4px;
+  padding: 0.75rem;
+  margin-top: 0.75rem;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: #888;
+  max-height: 160px;
+  overflow-y: auto;
+}
