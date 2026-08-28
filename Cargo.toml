@@ -30,14 +30,20 @@ static_cell = "2.1"
 embassy-executor = { version = "0.10", optional = true }
 
 # Web server stack (enabled with --features webserver)
-esp-radio = { git = "https://github.com/esp-rs/esp-hal", features = ["esp32c5", "wifi"], optional = true }
+esp-radio = { git = "https://github.com/esp-rs/esp-hal", features = ["esp32c5", "wifi", "log-04", "print-logs-from-driver", "unstable"], optional = true }
 esp-rtos = { git = "https://github.com/esp-rs/esp-hal", features = ["esp32c5", "esp-radio", "esp-alloc", "embassy"], optional = true }
 embassy-net = { version = "0.9", features = ["tcp", "udp", "dhcpv4", "medium-ethernet", "dns"], optional = true }
 embassy-time = { version = "0.5", features = ["tick-hz-1_000_000"], optional = true }
 embedded-io-async = { version = "0.7", optional = true }
-esp-println = { git = "https://github.com/esp-rs/esp-hal", features = ["esp32c5", "log-04"], optional = true }
+esp-println = { git = "https://github.com/esp-rs/esp-hal", default-features = false, features = ["esp32c5", "log-04", "jtag-serial", "critical-section"], optional = true }
 esp-backtrace = { git = "https://github.com/esp-rs/esp-hal", features = ["esp32c5", "panic-handler", "println"], optional = true }
 reqwless = { version = "0.14", default-features = false, optional = true }
+
+[patch.crates-io]
+esp-wifi-sys-esp32c5 = { path = "thirdparty/esp-wifi-sys-esp32c5" }
+
+[patch."https://github.com/esp-rs/esp-hal"]
+esp-radio = { path = "forks/esp-radio" }
 
 [profile.dev]
 debug = true

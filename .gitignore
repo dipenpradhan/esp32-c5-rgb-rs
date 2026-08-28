@@ -53,3 +53,6 @@ web/node_modules/
 watchdog.log
 watchdog.sh
 .watchdog_state
+# Local forks (separate git repos; pushed to GitHub independently)
+# Build needs forks/esp-radio present locally via [patch."https://github.com/esp-rs/esp-hal"]
+forks/
