@@ -45,8 +45,8 @@ target/
 serial_simulator/.cargo/
 serial_simulator/Cargo.lock
 
-# Node.js / TypeScript build
-web/dist/
+# Node.js / TypeScript build (the single-file web/dist/index.html is a
+# firmware build input — it is tracked; see web/.gitignore for the rules)
 web/node_modules/
 
 # Watchdog / runtime

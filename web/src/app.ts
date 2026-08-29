@@ -57,9 +57,11 @@ export class App {
         <h2>Config JSON</h2>
         <div class="preview-text" id="json">{ "effects": [] }</div>
         <div class="btn-row" style="margin-top:0.75rem">
+          <button class="btn-primary" id="saveToDevice">Save to Device</button>
           <button class="btn-secondary" id="copyJson">Copy JSON</button>
           <button class="btn-secondary" id="resetAll">Reset</button>
         </div>
+        <div id="status"></div>
       </div>
     `;
 
@@ -67,6 +69,7 @@ export class App {
     document.getElementById("addBlend")!.addEventListener("click", () => this.addBlend());
     document.getElementById("copyJson")!.addEventListener("click", () => this.copyJson());
     document.getElementById("resetAll")!.addEventListener("click", () => { this.effects = []; this.rebuild(); });
+    document.getElementById("saveToDevice")!.addEventListener("click", () => this.saveToDevice());
     document.getElementById("playPreview")!.addEventListener("click", () => this.startPreview());
     document.getElementById("stopPreview")!.addEventListener("click", () => this.stopPreview());
 
@@ -246,6 +249,56 @@ export class App {
     const orig = btn.textContent!;
     btn.textContent = "Copied!";
     setTimeout(() => { btn.textContent = orig; }, 1500);
+  }
+
+  // ── Device sync (two-way config) ──────────────────────────────
+
+  private setStatus(msg: string, kind: "ok" | "err" | "" = ""): void {
+    const el = document.getElementById("status");
+    if (!el) return;
+    el.textContent = msg;
+    el.className = kind ? `status ${kind}` : "status";
+  }
+
+  private async saveToDevice(): Promise<void> {
+    const btn = document.getElementById("saveToDevice");
+    const body = JSON.stringify({ effects: this.effects });
+    if (btn) (btn as HTMLButtonElement).disabled = true;
+    this.setStatus("Saving to device…");
+    try {
+      const res = await fetch("/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.ok) {
+        this.setStatus("✓ Saved — LED updated", "ok");
+      } else {
+        this.setStatus(`✗ ${data.error || "HTTP " + res.status}`, "err");
+      }
+    } catch {
+      this.setStatus("✗ Save failed (device offline?)", "err");
+    }
+    if (btn) (btn as HTMLButtonElement).disabled = false;
+  }
+
+  async loadFromDevice(): Promise<void> {
+    try {
+      const res = await fetch("/config");
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      const data = await res.json();
+      if (data.effects && data.effects.length > 0) {
+        this.effects = data.effects;
+        this.rebuild();
+        this.setStatus(`Loaded ${data.effects.length} effects from device`, "ok");
+      } else {
+        this.setStatus("Device has no effects yet");
+      }
+    } catch {
+      // Running standalone (not served by the device) — keep whatever is in the UI.
+      this.setStatus("Standalone mode (not served by device)");
+    }
   }
 
   private addBlink(): void {

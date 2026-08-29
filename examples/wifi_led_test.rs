@@ -16,7 +16,6 @@
 
 extern crate alloc;
 
-use alloc::string::ToString;
 use esp_hal::{
     clock::CpuClock,
     delay::Delay,
@@ -26,19 +25,14 @@ use esp_hal::{
     timer::timg::TimerGroup,
 };
 use esp_radio::wifi::{
-    Config as WifiConfig,
-    ControllerConfig,
-    WifiController,
-    WifiError,
-    sta::StationConfig,
+    sta::StationConfig, Config as WifiConfig, ControllerConfig, WifiController, WifiError,
 };
+use led_core::wifi as led_wifi;
+
 use esp_println::println;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 use esp_backtrace as _;
-
-const WIFI_SSID: &str = "D";
-const WIFI_PASS: &str = "REDACTED_WIFI_PASSWORD";
 
 // ── WS2812 bitbang driver (same as led_effects_async) ─────────────
 
@@ -105,10 +99,16 @@ fn main() -> ! {
     set_color(&mut led, &delay, 255, 255, 0);
 
     // MAGENTA = WiFi station config ready
+    // WiFi credentials come from configs/wifi.json (single source of
+    // truth), parsed + validated by led-core before the driver is used.
+    let creds = led_wifi::default_wifi_config().expect("wifi.json failed to parse");
+    creds
+        .validate()
+        .expect("wifi.json credentials out of ESP32 limits");
     let station_config = WifiConfig::Station(
         StationConfig::default()
-            .with_ssid(WIFI_SSID)
-            .with_password(WIFI_PASS.to_string()),
+            .with_ssid(creds.ssid.as_str())
+            .with_password(creds.password),
     );
     set_color(&mut led, &delay, 255, 0, 255);
 
@@ -116,7 +116,7 @@ fn main() -> ! {
     set_color(&mut led, &delay, 255, 255, 255);
     println!("[5] WHITE set, about to call WifiController::new()");
 
-    let controller = match WifiController::new(
+    let _controller = match WifiController::new(
         peripherals.WIFI,
         ControllerConfig::default().with_initial_config(station_config),
     ) {

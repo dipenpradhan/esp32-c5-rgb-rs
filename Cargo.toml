@@ -5,17 +5,29 @@ edition = "2021"
 
 [features]
 default = []
-async = ["dep:embassy-executor"]
-webserver = [
+# Async executor stack (embassy tasks on the esp-rtos scheduler).
+async = [
+  "dep:embassy-executor",
+  "dep:esp-rtos",
+  "esp-rtos/esp-alloc",
+  "esp-rtos/embassy",
+  "dep:embassy-time",
+]
+# WiFi driver (esp-radio) + RTOS. Examples that init the driver need this.
+wifi = [
   "async",
   "dep:esp-radio",
-  "dep:esp-rtos",
+]
+# WiFi + embassy-net stack (DHCP/TCP). Examples with a network stack need this.
+wifi-net = [
+  "wifi",
   "dep:embassy-net",
-  "dep:embassy-time",
-  "dep:embedded-io-async",
-  "dep:esp-println",
-  "dep:esp-backtrace",
   "dep:reqwless",
+]
+# Full web server: WiFi + network stack + the HTTP/LED/UI logic.
+webserver = [
+  "wifi-net",
+  "dep:embedded-io-async",
 ]
 
 [dependencies]
@@ -26,6 +38,10 @@ serde = { version = "1.0", default-features = false, features = ["derive", "allo
 serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
 static_cell = "2.1"
 
+## Pure, hardware-independent core logic (config/color/ws2812/http/wifi) —
+## shared by every firmware target and fully unit+integration tested on the host.
+led-core = { path = "led-core" }
+
 # Async runtime (enabled with --features async)
 embassy-executor = { version = "0.10", optional = true }
 
@@ -35,8 +51,8 @@ esp-rtos = { git = "https://github.com/esp-rs/esp-hal", features = ["esp32c5", "
 embassy-net = { version = "0.9", features = ["tcp", "udp", "dhcpv4", "medium-ethernet", "dns"], optional = true }
 embassy-time = { version = "0.5", features = ["tick-hz-1_000_000"], optional = true }
 embedded-io-async = { version = "0.7", optional = true }
-esp-println = { git = "https://github.com/esp-rs/esp-hal", default-features = false, features = ["esp32c5", "log-04", "jtag-serial", "critical-section"], optional = true }
-esp-backtrace = { git = "https://github.com/esp-rs/esp-hal", features = ["esp32c5", "panic-handler", "println"], optional = true }
+esp-println = { git = "https://github.com/esp-rs/esp-hal", default-features = false, features = ["esp32c5", "log-04", "jtag-serial", "critical-section"] }
+esp-backtrace = { git = "https://github.com/esp-rs/esp-hal", features = ["esp32c5", "panic-handler", "println"] }
 reqwless = { version = "0.14", default-features = false, optional = true }
 
 [patch.crates-io]
@@ -55,3 +71,51 @@ incremental = false
 lto = false
 codegen-units = 1
 strip = "symbols"
+
+# ── Strict checking mode ─────────────────────────────────────────
+# Every warning (any of rustc or clippy's lints) is a hard error for this
+# crate and its path dependency (led-core), so `cargo build`/`cargo test`
+# (which run clippy's rustc lints) fail on any regression.
+[lints.rust]
+warnings = "deny"
+missing_docs = "warn"
+
+[lints.clippy]
+all = "deny"
+
+# ── Example feature gating ─────────────────────────────────────
+# Each example lists the features it requires; `cargo build --examples`
+# (any feature set) only compiles the ones whose deps are enabled, and
+# `cargo build --examples --all-features` (or a specific feature) builds them all.
+[[example]]
+name = "async_blink"
+required-features = ["async"]
+
+[[example]]
+name = "blocking_blink"
+
+[[example]]
+name = "led_effects_async"
+required-features = ["async"]
+
+[[example]]
+name = "led_effects_sync"
+
+[[example]]
+name = "serial_test"
+
+[[example]]
+name = "web_server"
+required-features = ["webserver"]
+
+[[example]]
+name = "wifi_dhcp"
+required-features = ["wifi-net"]
+
+[[example]]
+name = "wifi_led_test"
+required-features = ["wifi"]
+
+[[example]]
+name = "wifi_test"
+required-features = ["wifi-net"]

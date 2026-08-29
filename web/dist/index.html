@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LED Effects Controller</title>
+  <script type="module" crossorigin>var h=Object.defineProperty;var v=(i,e,t)=>e in i?h(i,e,{enumerable:!0,configurable:!0,writable:!0,value:t}):i[e]=t;var a=(i,e,t)=>v(i,typeof e!="symbol"?e+"":e,t);(function(){const e=document.createElement("link").relList;if(e&&e.supports&&e.supports("modulepreload"))return;for(const s of document.querySelectorAll('link[rel="modulepreload"]'))n(s);new MutationObserver(s=>{for(const o of s)if(o.type==="childList")for(const c of o.addedNodes)c.tagName==="LINK"&&c.rel==="modulepreload"&&n(c)}).observe(document,{childList:!0,subtree:!0});function t(s){const o={};return s.integrity&&(o.integrity=s.integrity),s.referrerPolicy&&(o.referrerPolicy=s.referrerPolicy),s.crossOrigin==="use-credentials"?o.credentials="include":s.crossOrigin==="anonymous"?o.credentials="omit":o.credentials="same-origin",o}function n(s){if(s.ep)return;s.ep=!0;const o=t(s);fetch(s.href,o)}})();class b{constructor(e){a(this,"root");a(this,"effects");a(this,"previewAbort",null);this.root=e,this.effects=[]}render(){this.root.innerHTML=`
+      <h1>LED Effects</h1>
+
+      <div class="card">
+        <h2>Preview</h2>
+        <div class="led-preview">
+          <div class="led" id="led"></div>
+          <div class="preview-info">
+            <span id="stepLabel">No effects</span>
+            <div class="preview-controls">
+              <button class="btn-secondary btn-sm" id="stopPreview">Stop</button>
+              <button class="btn-primary btn-sm" id="playPreview">Play</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Effects</h2>
+        <div id="effectsList"></div>
+        <div class="btn-row" style="margin-top:0.75rem">
+          <button class="btn-primary" id="addBlink">+ Blink</button>
+          <button class="btn-primary" id="addBlend">+ Blend</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Config JSON</h2>
+        <div class="preview-text" id="json">{ "effects": [] }</div>
+        <div class="btn-row" style="margin-top:0.75rem">
+          <button class="btn-primary" id="saveToDevice">Save to Device</button>
+          <button class="btn-secondary" id="copyJson">Copy JSON</button>
+          <button class="btn-secondary" id="resetAll">Reset</button>
+        </div>
+        <div id="status"></div>
+      </div>
+    `,document.getElementById("addBlink").addEventListener("click",()=>this.addBlink()),document.getElementById("addBlend").addEventListener("click",()=>this.addBlend()),document.getElementById("copyJson").addEventListener("click",()=>this.copyJson()),document.getElementById("resetAll").addEventListener("click",()=>{this.effects=[],this.rebuild()}),document.getElementById("saveToDevice").addEventListener("click",()=>this.saveToDevice()),document.getElementById("playPreview").addEventListener("click",()=>this.startPreview()),document.getElementById("stopPreview").addEventListener("click",()=>this.stopPreview()),this.updateEmptyMsg(),this.updateJson()}rebuild(){this.renderEffectsList(),this.updateJson()}renderEffectsList(){const e=document.getElementById("effectsList");if(e.innerHTML="",this.effects.length===0){this.updateEmptyMsg();return}this.effects.forEach((t,n)=>{e.appendChild(this.createEffectElement(t,n))})}updateEmptyMsg(){const e=document.getElementById("effectsList");this.effects.length===0&&(e.innerHTML='<p class="empty-msg">Click + Blink or + Blend below to add effects</p>')}createEffectElement(e,t){const n=document.createElement("div");if(n.className="effect-item",e.type==="blink"){n.innerHTML=`
+        <div class="effect-header">
+          <span class="effect-tag blink-tag">Blink</span>
+          <span class="effect-info">Duration: ${e.duration_ms}ms · ${e.colors.length} colors</span>
+          <button class="btn-remove">✕</button>
+        </div>
+        <div class="color-strip">
+          ${e.colors.map((c,r)=>`
+            <div class="chip-wrap">
+              <input type="color" class="color-pick" data-ci="${r}" value="${d(c)}">
+            </div>
+          `).join("")}
+        </div>
+        <div class="effect-controls">
+          <div class="field-inline">
+            <label>ms</label>
+            <input type="number" class="dur-input" min="10" max="5000" value="${e.duration_ms}">
+          </div>
+          <button class="btn-add-color btn-sm">+ Color</button>
+          ${e.colors.length>1?'<button class="btn-remove-color btn-sm">- Color</button>':""}
+        </div>
+      `,n.querySelector(".btn-remove").addEventListener("click",()=>this.removeEffect(t));const s=n.querySelector(".dur-input");s.addEventListener("change",()=>{const c=Math.max(10,parseInt(s.value)||300);this.effects[t].duration_ms=c,n.querySelector(".effect-info").textContent=`Duration: ${c}ms · ${this.effects[t].colors.length} colors`,this.updateJson()}),n.querySelectorAll(".color-pick").forEach(c=>{c.addEventListener("input",()=>{const r=parseInt(c.dataset.ci);this.effects[t].colors[r]=f(c.value),this.updateJson()})}),n.querySelector(".btn-add-color").addEventListener("click",()=>{this.effects[t].colors.push([255,0,0]),this.rebuild()});const o=n.querySelector(".btn-remove-color");o&&o.addEventListener("click",()=>{this.effects[t].colors.pop(),this.rebuild()})}else{const s=e;n.innerHTML=`
+        <div class="effect-header">
+          <span class="effect-tag blend-tag">Blend</span>
+          <span class="effect-info">${s.steps} steps · ${s.step_ms}ms/step</span>
+          <button class="btn-remove">✕</button>
+        </div>
+        <div class="blend-row">
+          <div class="color-block from-block">
+            <label>From</label>
+            <input type="color" class="color-pick" value="${d(s.from)}">
+            <div class="color-swatch" style="background:rgb(${s.from.join(",")})"></div>
+          </div>
+          <span class="blend-arrow">→</span>
+          <div class="color-block to-block">
+            <label>To</label>
+            <input type="color" class="color-pick" value="${d(s.to)}">
+            <div class="color-swatch" style="background:rgb(${s.to.join(",")})"></div>
+          </div>
+        </div>
+        <div class="effect-fields">
+          <div class="field-pair">
+            <label>Steps</label>
+            <input type="number" class="num-input" min="1" max="200" value="${s.steps}">
+          </div>
+          <div class="field-pair">
+            <label>Step ms</label>
+            <input type="number" class="ms-input" min="1" max="5000" value="${s.step_ms}">
+          </div>
+        </div>
+      `,n.querySelector(".btn-remove").addEventListener("click",()=>this.removeEffect(t));const o=n.querySelector(".from-block .color-pick"),c=n.querySelector(".from-block .color-swatch");o.addEventListener("input",()=>{s.from=f(o.value),c.style.background=`rgb(${s.from.join(",")})`,this.updateJson()});const r=n.querySelector(".to-block .color-pick"),l=n.querySelector(".to-block .color-swatch");r.addEventListener("input",()=>{s.to=f(r.value),l.style.background=`rgb(${s.to.join(",")})`,this.updateJson()}),n.querySelector(".num-input").addEventListener("change",()=>{s.steps=Math.max(1,parseInt(n.querySelector(".num-input").value)||20),n.querySelector(".effect-info").textContent=`${s.steps} steps · ${s.step_ms}ms/step`,this.updateJson()}),n.querySelector(".ms-input").addEventListener("change",()=>{s.step_ms=Math.max(1,parseInt(n.querySelector(".ms-input").value)||100),n.querySelector(".effect-info").textContent=`${s.steps} steps · ${s.step_ms}ms/step`,this.updateJson()})}return n}updateJson(){const e=JSON.stringify({effects:this.effects},null,2);document.getElementById("json").textContent=e}copyJson(){navigator.clipboard.writeText(JSON.stringify({effects:this.effects},null,2));const e=document.getElementById("copyJson"),t=e.textContent;e.textContent="Copied!",setTimeout(()=>{e.textContent=t},1500)}setStatus(e,t=""){const n=document.getElementById("status");n&&(n.textContent=e,n.className=t?`status ${t}`:"status")}async saveToDevice(){const e=document.getElementById("saveToDevice"),t=JSON.stringify({effects:this.effects});e&&(e.disabled=!0),this.setStatus("Saving to device…");try{const n=await fetch("/config",{method:"POST",headers:{"Content-Type":"application/json"},body:t}),s=await n.json().catch(()=>({}));n.ok&&s.ok?this.setStatus("✓ Saved — LED updated","ok"):this.setStatus(`✗ ${s.error||"HTTP "+n.status}`,"err")}catch{this.setStatus("✗ Save failed (device offline?)","err")}e&&(e.disabled=!1)}async loadFromDevice(){try{const e=await fetch("/config");if(!e.ok)throw new Error("HTTP "+e.status);const t=await e.json();t.effects&&t.effects.length>0?(this.effects=t.effects,this.rebuild(),this.setStatus(`Loaded ${t.effects.length} effects from device`,"ok")):this.setStatus("Device has no effects yet")}catch{this.setStatus("Standalone mode (not served by device)")}}addBlink(){this.effects.push({type:"blink",colors:[[255,0,0]],duration_ms:300});const e=document.getElementById("effectsList");e.querySelector(".empty-msg")?this.rebuild():e.appendChild(this.createEffectElement(this.effects[this.effects.length-1],this.effects.length-1)),this.updateJson()}addBlend(){this.effects.push({type:"blend",from:[255,0,0],to:[0,255,0],steps:20,step_ms:100});const e=document.getElementById("effectsList");e.querySelector(".empty-msg")?this.rebuild():e.appendChild(this.createEffectElement(this.effects[this.effects.length-1],this.effects.length-1)),this.updateJson()}removeEffect(e){this.effects.splice(e,1),this.rebuild()}startPreview(){if(this.stopPreview(),this.effects.length===0)return;this.previewAbort=new AbortController;const e=this.previewAbort.signal,t=document.getElementById("led"),n=document.getElementById("stepLabel");(async()=>{for(;!e.aborted;)for(const o of this.effects){if(e.aborted)break;if(o.type==="blink")for(const c of o.colors){if(e.aborted)break;t.style.background=`rgb(${c[0]},${c[1]},${c[2]})`,t.style.boxShadow=`0 0 20px rgb(${c[0]},${c[1]},${c[2]})`,n.textContent=`Blink: ${u(c)}`,await p(o.duration_ms,e)}else{n.textContent=`Blend: ${u(o.from)} → ${u(o.to)}`;for(let c=0;c<=o.steps&&!e.aborted;c++){const r=c/o.steps,l=y(o.from,o.to,r);t.style.background=`rgb(${l[0]},${l[1]},${l[2]})`,t.style.boxShadow=`0 0 20px rgb(${l[0]},${l[1]},${l[2]})`,await p(o.step_ms,e)}}}})()}stopPreview(){this.previewAbort?.abort(),this.previewAbort=null;const e=document.getElementById("led");e&&(e.style.boxShadow="none");const t=document.getElementById("stepLabel");t&&(t.textContent="Stopped")}}function d(i){return`#${i.map(e=>e.toString(16).padStart(2,"0")).join("")}`}function f(i){return[parseInt(i.slice(1,3),16),parseInt(i.slice(3,5),16),parseInt(i.slice(5,7),16)]}function u(i){return`#${i.map(e=>e.toString(16).padStart(2,"0")).join("")}`}function y(i,e,t){return[Math.round(i[0]+(e[0]-i[0])*t),Math.round(i[1]+(e[1]-i[1])*t),Math.round(i[2]+(e[2]-i[2])*t)]}function p(i,e){return new Promise(t=>{if(e?.aborted){t();return}const n=setTimeout(t,i);e?.addEventListener("abort",()=>{clearTimeout(n),t()},{once:!0})})}const m=document.getElementById("app");if(m){const i=new b(m);i.render(),i.loadFromDevice()}</script>
+  <style rel="stylesheet" crossorigin>*,*:before,*:after{box-sizing:border-box;margin:0;padding:0}:root{--bg: #1a1a2e;--surface: #16213e;--border: #0f3460;--text: #e0e0e0;--accent: #00d4aa;--accent-dim: #00a388;--danger: #e94560}body{font-family:system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;justify-content:center;padding:2rem}#app{width:100%;max-width:480px}h1{font-size:1.5rem;font-weight:600;text-align:center;margin-bottom:1.5rem;color:var(--accent)}.card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:1.25rem;margin-bottom:1rem}.card h2{font-size:.85rem;text-transform:uppercase;letter-spacing:.08em;color:#888;margin-bottom:.75rem}.led-preview{display:flex;justify-content:center;align-items:center;gap:1.5rem;margin-bottom:.5rem}.led{width:56px;height:56px;border-radius:50%;border:2px solid rgba(255,255,255,.1);transition:background-color .1s ease}.preview-info{display:flex;flex-direction:column;gap:.5rem;min-width:140px}#stepLabel{font-size:.85rem;color:#aaa}.preview-controls{display:flex;gap:.4rem}.empty-msg{text-align:center;color:#666;font-size:.9rem;padding:1rem 0}.effect-item{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:.75rem;margin-bottom:.5rem}.effect-header{display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem}.effect-tag{font-size:.75rem;font-weight:700;text-transform:uppercase;padding:2px 8px;border-radius:4px}.blink-tag{background:var(--accent);color:var(--bg)}.blend-tag{background:#4361ee;color:#fff}.effect-info{font-size:.8rem;color:#888;flex:1}.btn-remove{background:none;border:none;color:var(--danger);font-size:1rem;cursor:pointer;padding:0 .25rem;flex:unset}.btn-remove:hover{color:#ff6b6b}.color-strip{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:.5rem}.chip-wrap{display:flex;align-items:center}.chip-wrap input[type=color]{width:32px;height:32px;padding:1px;border:2px solid rgba(255,255,255,.15);border-radius:4px;cursor:pointer;background:transparent}.chip-wrap input[type=color]::-webkit-color-swatch-wrapper{padding:0}.chip-wrap input[type=color]::-webkit-color-swatch{border:none;border-radius:2px}.blend-row{display:flex;align-items:center;gap:.75rem;margin-bottom:.5rem}.color-block{flex:1;border-radius:6px;padding:.5rem;text-align:center;background:var(--surface);border:1px solid var(--border)}.color-block label{font-size:.7rem;text-transform:uppercase;color:#888;display:block;margin-bottom:.35rem}.color-block input[type=color]{width:100%;height:36px;border:2px solid rgba(255,255,255,.15);border-radius:4px;cursor:pointer;background:transparent}.color-block input[type=color]::-webkit-color-swatch-wrapper{padding:2px}.color-block input[type=color]::-webkit-color-swatch{border:none;border-radius:2px}.color-swatch{width:100%;height:4px;border-radius:2px;margin-top:4px}.blend-arrow{font-size:1.5rem;color:#666}.effect-fields{display:flex;gap:.5rem}.field-pair{flex:1;display:flex;flex-direction:column;gap:.25rem}.field-pair label{font-size:.75rem;color:#888}.field-pair input{background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:.35rem .5rem;color:var(--text);font-size:.85rem;outline:none;width:100%}.field-pair input:focus{border-color:var(--accent)}.field-inline{display:flex;align-items:center;gap:4px;flex:1}.field-inline label{font-size:.75rem;color:#888}.field-inline input{width:70px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:.35rem .5rem;color:var(--text);font-size:.85rem;outline:none}.field-inline input:focus{border-color:var(--accent)}.effect-controls{display:flex;gap:.4rem;align-items:center}.btn-row{display:flex;gap:.75rem}button{flex:1;padding:.65rem 1rem;border:none;border-radius:6px;font-size:.9rem;font-weight:600;cursor:pointer;transition:background .15s ease}.btn-sm{flex:unset;padding:.35rem .75rem;font-size:.78rem}.btn-xs{flex:unset;padding:.2rem .5rem;font-size:.7rem}.btn-primary{background:var(--accent);color:var(--bg)}.btn-primary:hover{background:var(--accent-dim)}.btn-secondary{background:transparent;border:1px solid var(--border);color:var(--text)}.btn-secondary:hover{border-color:var(--accent);color:var(--accent)}.btn-add-color,.btn-remove-color{flex:unset;padding:.25rem .6rem;font-size:.75rem;background:var(--surface);border:1px solid var(--border);color:var(--text)}.btn-add-color:hover,.btn-remove-color:hover{border-color:var(--accent);color:var(--accent)}.preview-text{font-family:monospace;font-size:.8rem;background:var(--bg);border-radius:4px;padding:.75rem;margin-top:.75rem;white-space:pre-wrap;word-break:break-all;color:#888;max-height:200px;overflow-y:auto}.status{margin-top:.6rem;font-size:.85rem;color:#888;min-height:1.2em}.status.ok{color:#4caf50;font-weight:600}.status.err{color:#e53935;font-weight:600}</style>
+</head>
+<body>
+  <div id="app"></div>
+</body>
+</html>

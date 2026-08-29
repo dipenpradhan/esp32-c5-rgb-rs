@@ -1,18 +1,20 @@
+//! Config-driven LED effects with async/await.
+//!
+//! Uses embassy-executor for the async runtime and esp-hal's async timer for
+//! delays between effects. All effect/WS2812/color logic lives in the
+//! `led-core` crate (unit+integration tested on the host); this example is
+//! the thin hardware layer.
+
 #![no_std]
 #![no_main]
 
-//! Config-driven LED effects with async/await.
-//!
-//! Uses embassy-executor for async runtime and esp_hal's async timer
-//! for delays between effects.
-
 extern crate alloc;
 
-use alloc::vec::Vec;
-use embassy_executor::Spawner;
 use esp_hal::delay::Delay;
 use esp_hal::gpio::{Level, Output, OutputConfig};
 use esp_hal::timer::{systimer::SystemTimer, OneShotTimer};
+use led_core::config::{LedConfig, LedEffect};
+use led_core::ws2812::{self, encode_rgb, PinPulse};
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -21,110 +23,51 @@ fn panic(_: &core::panic::PanicInfo) -> ! {
     loop {}
 }
 
-// ── Config structs ──────────────────────────────────────────────────
+// ── WS2812 driver (blocking, requires critical timing) ───────────────────
 
-/// Top-level config.
-#[derive(serde::Deserialize)]
-struct Config {
-    effects: Vec<Effect>,
+/// A `led_core::ws2812::PinPulse` backed by a real GPIO pin + calibrated delay.
+struct GpioPulse<'a> {
+    pin: &'a mut Output<'static>,
+    delay: &'a Delay,
 }
 
-/// An effect to run.
-#[derive(serde::Deserialize)]
-#[serde(tag = "type")]
-enum Effect {
-    #[serde(rename = "blink")]
-    Blink {
-        colors: Vec<[u8; 3]>,
-        duration_ms: u32,
-    },
-    #[serde(rename = "blend")]
-    Blend {
-        from: [u8; 3],
-        to: [u8; 3],
-        steps: u32,
-        step_ms: u32,
-    },
-}
-
-// ── WS2812 driver (blocking, requires critical timing) ─────────────
-
-/// WS2812 bitbang driver for a single addressable RGB LED.
-///
-/// Protocol timing (WS2812):
-///   - Logic 0: HIGH < 0.5 µs, LOW > 0.5 µs
-///   - Logic 1: HIGH > 0.5 µs, LOW < 0.5 µs
-///   - Reset:   LOW ≥ 50 µs
-///
-/// Data order: GRB (Green, Red, Blue) — standard for WS2812 LEDs.
-
-/// Send one WS2812 bit via GPIO with calibrated delays.
-#[inline(always)]
-fn ws2812_bit(pin: &mut Output, delay: &Delay, bit: bool) {
-    pin.set_high();
-    if bit {
-        delay.delay_micros(1); // HIGH ~1 µs → logic 1
+impl PinPulse for GpioPulse<'_> {
+    fn set_high(&mut self) {
+        self.pin.set_high();
     }
-    pin.set_low();
-    if !bit {
-        delay.delay_micros(1); // LOW ~1 µs → logic 0
+    fn set_low(&mut self) {
+        self.pin.set_low();
+    }
+    fn delay_us(&mut self, us: u32) {
+        self.delay.delay_micros(us);
     }
 }
 
-/// Send one byte (MSB first) to the WS2812.
-#[inline(always)]
-fn ws2812_byte(pin: &mut Output, delay: &Delay, byte: u8) {
-    for i in (0..8).rev() {
-        ws2812_bit(pin, delay, (byte >> i) & 1 != 0);
-    }
+/// Send one RGB color (`[R, G, B]`) to the WS2812 via the tested `led-core`
+/// frame encoding + replay (24 µs bit-bang + 50 µs reset = 74 µs).
+fn ws2812_rgb(pin: &mut Output<'static>, delay: &Delay, rgb: &[u8; 3]) {
+    let frame = encode_rgb(rgb);
+    let mut pulse = GpioPulse { pin, delay };
+    ws2812::replay_frame(&mut pulse, &frame);
 }
 
-/// Send a GRB triplet to the WS2812 and issue a reset pulse.
-fn ws2812_grb(pin: &mut Output, delay: &Delay, g: u8, r: u8, b: u8) {
-    ws2812_byte(pin, delay, g);
-    ws2812_byte(pin, delay, r);
-    ws2812_byte(pin, delay, b);
-    pin.set_low();
-    delay.delay_micros(50);
-}
-
-/// Send an RGB color (as [R, G, B]) to the WS2812.
-fn ws2812_rgb(pin: &mut Output, delay: &Delay, rgb: &[u8; 3]) {
-    ws2812_grb(pin, delay, rgb[1], rgb[0], rgb[2]); // RGB → GRB
-}
-
-// ── Color interpolation ────────────────────────────────────────────
-
-/// Linearly interpolate between two RGB colors.
-fn interpolate(from: &[u8; 3], to: &[u8; 3], step: u32, total: u32) -> [u8; 3] {
-    [
-        lerp_u8(from[0], to[0], step, total),
-        lerp_u8(from[1], to[1], step, total),
-        lerp_u8(from[2], to[2], step, total),
-    ]
-}
-
-/// Linear interpolation for a single u8 channel.
-fn lerp_u8(from: u8, to: u8, step: u32, total: u32) -> u8 {
-    if total == 0 {
-        from
-    } else {
-        let frac = (step as u32) * 255 / total;
-        let result = (from as u32) * (255 - frac) / 255 + (to as u32) * frac / 255;
-        result as u8
-    }
-}
-
-// ── Async main ──────────────────────────────────────────────────────
+// ── Async main ────────────────────────────────────────────────────────────
 
 const CONFIG_JSON: &str = include_str!("../configs/effects.json");
 
-#[embassy_executor::main(entry = "esp_hal::main")]
-async fn main(_spawner: Spawner) {
+#[esp_hal::main]
+async fn main(_spawner: embassy_executor::Spawner) -> ! {
     let peripherals = esp_hal::init(esp_hal::Config::default());
 
-    // Initialize heap allocator for serde_json / alloc
-    esp_alloc::heap_allocator!(size: 8192);
+    // Heap for serde_json + the RTOS task stacks.
+    esp_alloc::heap_allocator!(size: 32 * 1024);
+
+    // Start the RTOS scheduler (the unified #[esp_hal::main] async entry runs
+    // its executor on top of it).
+    let timg0 = esp_hal::timer::timg::TimerGroup::new(peripherals.TIMG0);
+    let sw_int =
+        esp_hal::interrupt::software::SoftwareInterruptControl::new(peripherals.SW_INTERRUPT);
+    esp_rtos::start(timg0.timer0, sw_int.software_interrupt0);
 
     let delay = Delay::new();
 
@@ -135,31 +78,32 @@ async fn main(_spawner: Spawner) {
     let systimer = SystemTimer::new(peripherals.SYSTIMER);
     let mut timer = OneShotTimer::new(systimer.alarm0).into_async();
 
-    // Parse config at startup
-    let config: Config = serde_json::from_str(CONFIG_JSON)
-        .unwrap_or_else(|_| {
-            // Fallback: empty config
-            Config { effects: Vec::new() }
-        });
+    // Parse config at startup (falls back to an empty config if malformed).
+    let config: LedConfig =
+        serde_json::from_str(CONFIG_JSON).unwrap_or_else(|_| LedConfig::empty());
 
     // Run effects in an async loop
     loop {
         for effect in &config.effects {
             match effect {
-                Effect::Blink { colors, duration_ms } => {
+                LedEffect::Blink {
+                    colors,
+                    duration_ms,
+                } => {
                     for &color in colors {
                         ws2812_rgb(&mut led, &delay, &color);
                         timer.delay_millis_async(*duration_ms).await;
                     }
                 }
-                Effect::Blend {
+                LedEffect::Blend {
                     from,
                     to,
                     steps,
                     step_ms,
+                    ..
                 } => {
                     for step in 0..=*steps {
-                        let color = interpolate(from, to, step, *steps);
+                        let color = led_core::color::interpolate(from, to, step, *steps);
                         ws2812_rgb(&mut led, &delay, &color);
                         timer.delay_millis_async(*step_ms).await;
                     }

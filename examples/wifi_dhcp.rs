@@ -2,40 +2,27 @@
 #![no_main]
 
 //! Embassy DHCP Example - copied from esp-hal main branch
-//! 
-//! Set SSID and PASSWORD in the code.
+//!
+//! WiFi credentials come from `configs/wifi.json` (single source of truth).
 
 extern crate alloc;
 
-use alloc::string::ToString;
 use embassy_executor::Spawner;
 use embassy_net::Runner;
-use embassy_net::tcp::client::{TcpClient, TcpClientState};
-use embassy_net::dns::DnsSocket;
 use embassy_net::{Config, StackResources};
 use embassy_time::{Duration, Timer};
 use esp_alloc as _;
 use esp_backtrace as _;
 use esp_hal::{
-    clock::CpuClock,
-    interrupt::software::SoftwareInterruptControl,
-    ram,
-    rng::Rng,
+    clock::CpuClock, interrupt::software::SoftwareInterruptControl, ram, rng::Rng,
     timer::timg::TimerGroup,
 };
 use esp_println::println;
 use esp_radio::wifi::{
-    Config as WifiConfig,
-    ControllerConfig,
-    Interface,
+    scan::ScanConfig, sta::StationConfig, Config as WifiConfig, ControllerConfig, Interface,
     WifiController,
-    scan::ScanConfig,
-    sta::StationConfig,
 };
-use reqwless::{
-    client::HttpClient,
-    request::{Method, RequestBuilder},
-};
+use led_core::wifi as led_wifi;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -43,13 +30,10 @@ macro_rules! mk_static {
     ($t:ty,$val:expr) => {{
         static STATIC_CELL: static_cell::StaticCell<$t> = static_cell::StaticCell::new();
         #[deny(unused_attributes)]
-        let x = STATIC_CELL.uninit().write(($val));
+        let x = STATIC_CELL.uninit().write($val);
         x
     }};
 }
-
-const SSID: &str = "D";
-const PASSWORD: &str = "REDACTED_WIFI_PASSWORD";
 
 #[esp_hal::main]
 async fn main(spawner: Spawner) -> ! {
@@ -65,10 +49,16 @@ async fn main(spawner: Spawner) -> ! {
     esp_rtos::start(timg0.timer0, sw_int.software_interrupt0);
 
     println!("Starting wifi");
+    // WiFi credentials come from configs/wifi.json (single source of
+    // truth), parsed + validated by led-core before the driver is used.
+    let creds = led_wifi::default_wifi_config().expect("wifi.json failed to parse");
+    creds
+        .validate()
+        .expect("wifi.json credentials out of ESP32 limits");
     let station_config = WifiConfig::Station(
         StationConfig::default()
-            .with_ssid(SSID)
-            .with_password(PASSWORD.to_string()),
+            .with_ssid(creds.ssid.as_str())
+            .with_password(creds.password),
     );
 
     let wifi_interface = Interface::station();

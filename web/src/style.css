@@ -385,3 +385,22 @@ button {
   max-height: 200px;
   overflow-y: auto;
 }
+
+/* ── Status line (device sync feedback) ───────────────────────── */
+
+.status {
+  margin-top: 0.6rem;
+  font-size: 0.85rem;
+  color: #888;
+  min-height: 1.2em;
+}
+
+.status.ok {
+  color: #4caf50;
+  font-weight: 600;
+}
+
+.status.err {
+  color: #e53935;
+  font-weight: 600;
+}

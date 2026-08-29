@@ -1,3 +1,5 @@
+//! Minimal async GPIO blink (embassy executor + systimer), no config.
+
 #![no_std]
 #![no_main]
 

@@ -1,3 +1,5 @@
+//! Minimal blocking GPIO blink (no config), the smallest possible firmware.
+
 #![no_std]
 #![no_main]
 
