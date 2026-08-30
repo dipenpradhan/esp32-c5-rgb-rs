@@ -28,6 +28,9 @@ esp32-build/build/compilation_database.json
 *.swo
 *~
 
+# Claude Code local settings/state (machine-specific, not shared)
+.claude/
+
 # OS files
 .DS_Store
 Thumbs.db
@@ -56,3 +59,6 @@ watchdog.sh
 # Local forks (separate git repos; pushed to GitHub independently)
 # Build needs forks/esp-radio present locally via [patch."https://github.com/esp-rs/esp-hal"]
 forks/
+# WiFi credentials (real values live in configs/wifi.json and are compiled into
+# the firmware — never commit; copy configs/wifi.json.example and fill it in)
+configs/wifi.json
