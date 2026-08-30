@@ -287,7 +287,62 @@ fn ws2812_rgb_rmt<'ch>(
 }
 
 // ── HTTP handler ────────────────────────────────────────────────
+/// Write `buf` in full, looping on partial writes; abort the socket on a real
+/// error.
+///
+/// `embassy_net::tcp::TcpSocket::write` (via `embedded_io_async::Write`)
+/// returns `Result<usize, Error>` where the `usize` is the number of bytes
+/// *actually accepted* into the transmit buffer — which can be LESS than the
+/// slice handed in (TCP window full, or a single write larger than the
+/// buffer the socket will take at once). Looping until the slice is exhausted
+/// is therefore REQUIRED for correctness, not a style choice:
+///
+/// REGRESSION FIXED (2026-08): the previous `send_response` did
+/// `let _ = socket.write(body).await;`, discarding the return value. With
+/// `TX_BUF` at 16384 and a served payload of 16450 bytes (page + injected
+/// token script + HTTP header), the write silently accepted 16384 and the
+/// trailing 66 bytes — the end of the token script, `</head>`, `<body>` and
+/// `<div id="app">`, the mount point the UI's JS needs — were never sent.
+/// The browser got HTTP 200 and a BLANK PAGE, and curl reported
+/// "transfer closed with 66 bytes remaining to read". Do NOT "simplify" this
+/// loop away: the single `write` call is not guaranteed to write the whole
+/// slice.
+///
+/// On a genuine error the socket is aborted (a `ConnectionReset` means the
+/// peer or the stack will not take any more bytes, so retrying is pointless);
+/// the caller then runs its normal teardown, which is harmless on an
+/// already-aborted socket (same pattern as the idle-read-timeout path in
+/// `handle_client`).
+async fn write_all(socket: &mut embassy_net::tcp::TcpSocket<'static>, buf: &[u8]) -> bool {
+    let mut offset = 0;
+    while offset < buf.len() {
+        match socket.write(&buf[offset..]).await {
+            Ok(0) => {
+                // A blocking write returning 0 is an anomaly (the read half
+                // may be the only thing closed); treat it as an error rather
+                // than spinning forever on an empty write.
+                println!("HTTP: write returned 0 bytes, aborting");
+                socket.abort();
+                return false;
+            }
+            Ok(n) => offset += n,
+            Err(e) => {
+                println!("HTTP: write error: {e:?}, aborting");
+                socket.abort();
+                return false;
+            }
+        }
+    }
+    true
+}
+
 /// Send a full HTTP response (headers with Content-Length + body) and flush.
+///
+/// The header and the body are each written through [`write_all`], which
+/// loops on partial writes (see its doc for why that loop exists). The
+/// flush result is surfaced on the log rather than discarded: `flush` fails
+/// only if the connection is already broken, but silently ignoring it would
+/// hide exactly the class of bug that truncated this page.
 ///
 /// Connection teardown (close + wait + abort) happens in the server loop so a
 /// fresh `accept()` is guaranteed to be ready for the next client — the fix
@@ -300,9 +355,15 @@ async fn send_response(
 ) {
     let mut header = [0u8; http::RESPONSE_HEADER_BYTES];
     let n = http::build_response_header(&mut header, status, content_type, body.len());
-    let _ = socket.write(&header[..n]).await;
-    let _ = socket.write(body).await;
-    let _ = socket.flush().await;
+    if !write_all(socket, &header[..n]).await {
+        return;
+    }
+    if !write_all(socket, body).await {
+        return;
+    }
+    if let Err(e) = socket.flush().await {
+        println!("HTTP: flush error: {e:?}");
+    }
 }
 
 /// The UI page as actually served: [`INDEX_HTML`] with a tiny `<script>`
@@ -736,9 +797,17 @@ async fn http_server_task(stack: embassy_net::Stack<'static>) -> ! {
     // HTTP server loop
     println!("Starting HTTP server on port 80...");
     static RX_BUF: StaticBuf<1024> = StaticBuf::new();
-    // TX buffer must be large enough to hold the whole HTML page (~16 KB) so a
-    // single write + flush can deliver it.
-    static TX_BUF: StaticBuf<16384> = StaticBuf::new();
+    // TX buffer. SIZED FOR THE SERVED PAYLOAD, not the raw page: what goes on
+    // the wire for `GET /` is `dist/index.html` (16292 bytes today) + the
+    // injected token script (72) + the HTTP header (86) = 16450 bytes — which
+    // OVERFLOWED the old 16384-byte buffer and silently truncated the page by
+    // 66 bytes (the 2026-08 blank-page regression; with the `write_all` loop
+    // that is now a performance issue, not a correctness one). 20480 = 16 KiB
+    // + 4 KiB of headroom, a round number that comfortably covers the page
+    // even if it grows ~25% before needing another look. Defence in depth:
+    // `send_response` now loops on partial writes, so an undersized buffer
+    // costs extra write round-trips, never lost bytes.
+    static TX_BUF: StaticBuf<20480> = StaticBuf::new();
 
     loop {
         // SAFETY: only this task ever borrows `RX_BUF`/`TX_BUF` (they live in
