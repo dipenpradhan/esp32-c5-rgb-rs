@@ -17,12 +17,13 @@
 
 extern crate alloc;
 
-use alloc::boxed::Box;
+use alloc::format;
+use alloc::string::String;
 use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use embassy_executor::Spawner;
 use embassy_net::{Config, Runner, StackResources};
-use embassy_time::{Duration, Timer};
+use embassy_time::{with_timeout, Duration, Timer};
 use esp_hal::clock::CpuClock;
 use esp_hal::delay::Delay;
 use esp_hal::gpio::{Level, Output, OutputConfig};
@@ -41,10 +42,47 @@ use led_core::ws2812::{self, encode_rgb, PinPulse, Ws2812Frame};
 esp_bootloader_esp_idf::esp_app_desc!();
 use esp_backtrace as _;
 
+macro_rules! mk_static {
+    ($t:ty,$val:expr) => {{
+        static STATIC_CELL: static_cell::StaticCell<$t> = static_cell::StaticCell::new();
+        #[deny(unused_attributes)]
+        let x = STATIC_CELL.uninit().write($val);
+        x
+    }};
+}
+
 // ── Embedded web page ──────────────────────────────────────────
 const INDEX_HTML: &str = include_str!("../web/dist/index.html");
-const HTML_404: &[u8] =
-    b"HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n<html><body><h1>404</h1></body></html>";
+/// The 404 *body* — just the HTML. `send_response` builds and writes its own
+/// HTTP header (via `http::build_response_header`) and then writes this byte
+/// slice as the body, so the constant must be body-only. The old value baked
+/// in a second `HTTP/1.1 404 ...` status line + headers, which the device then
+/// emitted *as body text* after the real header — the malformed 404 captured
+/// on hardware (exactly the length of that constant).
+const HTML_404: &[u8] = b"<html><body><h1>404</h1></body></html>";
+
+// ── POST /config authentication ────────────────────────────────
+// There is no other auth: any device on the same WiFi can reach the server.
+// To stop a casual (or malicious) LAN device from rewriting the config, a
+// `POST /config` must echo a secret token back in a request header; GET routes
+// stay open so the UI page can load.
+/// The request header a `POST /config` must carry, carrying [`CONFIG_TOKEN`].
+const CONFIG_TOKEN_HEADER: &str = "X-Config-Token";
+/// A 128-bit random-ish token embedded in the firmware. A `POST /config` that
+/// does not echo this exact value in [`CONFIG_TOKEN_HEADER`] is rejected with
+/// 403. (Pre-generated, not `build_time!`-derived: `build_time` is not in the
+/// dependency set and no dependency may be added from this file — see the
+/// report. 128 bits is unguessable by a LAN peer without the firmware image.)
+const CONFIG_TOKEN: &str = "76f05ec02c1b995ddc6b795f90c9aaba";
+/// The script injected into the served page (see [`injected_index_html`]) so
+/// the UI — which lives in `web/src/`, owned elsewhere and not edited here —
+/// can read `window.CONFIG_TOKEN` and attach it to its `POST /config` header
+/// without the token being hard-coded into `web/src/`. Built with `format!`
+/// (not `concat!`) because `concat!` only splices token literals, and
+/// [`CONFIG_TOKEN`] is a `const`, not a literal.
+fn config_token_script() -> String {
+    format!("<script>window.CONFIG_TOKEN=\"{}\";</script>", CONFIG_TOKEN)
+}
 
 // ── Shared effect config (live-updatable via POST /config) ─────
 // A zeroed byte buffer held as a `static` via interior mutability
@@ -53,19 +91,32 @@ const HTML_404: &[u8] =
 #[repr(transparent)]
 struct StaticBuf<const N: usize>(core::cell::UnsafeCell<[u8; N]>);
 
-/// Single-core (ESP32-C5 is one core) + cooperative embassy scheduling: no
-/// two tasks ever run at once and no interrupt handler aliases these buffers,
-/// so the compiler's `!Sync` default (inherited from `UnsafeCell`) is too
-/// conservative — the buffer is soundly shareable.
+/// SAFETY of the hand-written `Sync` below rests on **confinement to a single
+/// executor thread**, not on the (false) claim that no other thread or task
+/// ever runs. Other threads genuinely do exist: `esp_rtos::start` installs a
+/// preemptive scheduler (run queue, priorities, task switching), and the
+/// esp-radio WiFi driver spawns its own OS tasks. But those threads never
+/// touch these buffers. Every `StaticBuf` in this file (the `CONFIG_DATA`
+/// store and the `RX_BUF`/`TX_BUF` socket buffers) is accessed only by the
+/// four embassy tasks, and all four run on ONE single-threaded cooperative
+/// embassy executor (`#[esp_hal::main]` compiles to a single
+/// `esp_rtos::embassy::Executor`), which polls them round-robin with no
+/// preemption between `await` points. Because no other thread ever holds an
+/// alias to these buffers, a shared `&` from the `static` cannot alias a live
+/// `&mut`, and the `!Sync` default inherited from `UnsafeCell` is therefore
+/// too conservative — the buffer is soundly shareable.
 unsafe impl<const N: usize> Sync for StaticBuf<N> {}
 
 impl<const N: usize> StaticBuf<N> {
     const fn new() -> Self {
         Self(core::cell::UnsafeCell::new([0u8; N]))
     }
-    /// Exclusive access. Safety: single-core cooperative scheduling — tasks
-    /// never run concurrently and no interrupt handler touches these buffers,
-    /// so the caller owns the buffer for the duration of its call.
+    /// Exclusive access.
+    ///
+    /// SAFETY: confined to the single cooperative embassy executor (see the
+    /// `Sync` impl above) — no interrupt handler or other OS thread aliases
+    /// this buffer, and the executor never preempts between `await` points, so
+    /// the caller owns the buffer for the duration of the synchronous call.
     // `mut_from_ref` is intentional: `UnsafeCell` exists precisely to permit
     // this documented mutable access from a shared `&self` on a `static`.
     #[allow(clippy::mut_from_ref)]
@@ -76,23 +127,41 @@ impl<const N: usize> StaticBuf<N> {
     /// A shared `'static` view of the first `len` bytes.
     ///
     /// Sound because the buffer lives in a `static` (valid for the program's
-    /// lifetime). Caller must ensure `len <= N` and that no exclusive borrow
-    /// via [`as_mut`] is active (single-core cooperative scheduling).
+    /// lifetime) and — per the `Sync` impl above — only the one cooperative
+    /// executor aliases it. The caller must ensure `len <= N` and that no
+    /// exclusive borrow via [`as_mut`] is in flight on that same executor
+    /// thread (which holds for every call site in this file).
     fn get(&self, len: usize) -> &'static [u8] {
         debug_assert!(len <= N);
-        // SAFETY: `self` refers to a `static`; the memory is valid for `len`
-        // bytes and no other aliasing access is in flight (see the type docs).
+        // SAFETY: `self` is a `static` (valid for `len` bytes for the program's
+        // lifetime) and, per the `Sync` impl above, is aliased only by the one
+        // cooperative executor — no `as_mut` borrow is in flight on it.
         unsafe { core::slice::from_raw_parts(self.0.get() as *const u8, len) }
     }
 }
 
-// Single-core cooperative scheduling: the HTTP task and the LED task never
-// run concurrently, so a static buffer guarded by a version counter is safe.
-// The LED task re-parses whenever CONFIG_VERSION changes.
+// Shared effect config. The buffer is guarded by a version counter: the HTTP
+// task is the ONLY writer (`config_init`/`config_set` copy the bytes and then
+// bump `CONFIG_VERSION`), and the LED task + `GET /config` readers key off
+// `CONFIG_VERSION`. Because every accessor runs on the single cooperative
+// executor and the bytes are written *before* the version is bumped, a reader
+// sees either the fully-old or fully-new buffer, never a torn mix.
 const CONFIG_MAX: usize = 4096;
+/// Size of each `read()` chunk in `handle_client` (512 bytes: matches the
+/// 512-byte `RX_BUF`, so one chunk always fits the socket's receive buffer).
+const READ_CHUNK_BYTES: usize = 512;
 static CONFIG_DATA: StaticBuf<CONFIG_MAX> = StaticBuf::new();
 static CONFIG_LEN: AtomicUsize = AtomicUsize::new(0);
 static CONFIG_VERSION: AtomicU32 = AtomicU32::new(0);
+
+/// Per-`read()` idle budget for an accepted connection (see `handle_client`).
+///
+/// The server handles exactly ONE connection at a time (accept → handle →
+/// teardown → accept). A client that connects, sends one byte, then goes
+/// silent would otherwise block the single `read` forever and starve the
+/// config UI of any other client until a reboot (a Slowloris with one packet).
+/// Racing each read against this timer bounds that worst case.
+const IDLE_READ_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Initialize the shared config with the built-in default (configs/effects.json).
 fn config_init() {
@@ -113,7 +182,9 @@ fn config_set(new: &[u8]) -> bool {
     true
 }
 
-/// The current stored config as a byte slice (safe: only called between tasks).
+/// The current stored config length + version (safe: every caller runs on the
+/// single cooperative executor and reads the two atomics synchronously — no
+/// `await` between the reads — so they are consistent).
 fn config_bytes() -> (usize, u32) {
     (
         CONFIG_LEN.load(Ordering::SeqCst),
@@ -167,9 +238,58 @@ async fn send_response(
     let _ = socket.flush().await;
 }
 
+/// The UI page as actually served: [`INDEX_HTML`] with a tiny `<script>`
+/// injected before `</head>` that publishes [`CONFIG_TOKEN`] to the page as
+/// `window.CONFIG_TOKEN`. This is how the token reaches the browser *without*
+/// editing `web/src/` (owned elsewhere): the served copy is built here, at
+/// serve time, so the `web/src` source and the built `dist/index.html` stay
+/// untouched. The injection point is chosen so the token is available before
+/// the module `<script>` at the end of `<head>` runs.
+fn injected_index_html() -> Vec<u8> {
+    let script = config_token_script();
+    let mut out = Vec::with_capacity(INDEX_HTML.len() + script.len());
+    match INDEX_HTML.find("</head>") {
+        Some(i) => {
+            out.extend_from_slice(INDEX_HTML[..i].as_bytes());
+            out.extend_from_slice(script.as_bytes());
+            out.extend_from_slice(INDEX_HTML[i..].as_bytes());
+        }
+        // Fall back to the unmodified page if the marker is ever missing (the
+        // page still loads; it just won't carry the token).
+        None => out.extend_from_slice(INDEX_HTML.as_bytes()),
+    }
+    out
+}
+
+/// True if the raw request buffer's header block carries
+/// `X-Config-Token: <CONFIG_TOKEN>` (a `led-core` header-lookup helper does not
+/// exist, and `led-core` is owned elsewhere — so the lookup is local here).
+///
+/// The comparison is case-sensitive on the header *name* (the UI we inject
+/// sends the exact name) and exact on the value. Comparing one header's value
+/// against the constant is sufficient for auth: the value itself is the secret.
+fn config_token_provided(req_buf: &[u8]) -> bool {
+    // Only the header block matters (before the "\r\n\r\n" terminator).
+    let header_end = match http::find_header_end(req_buf) {
+        Some(i) => i,
+        None => return false,
+    };
+    let head = core::str::from_utf8(&req_buf[..header_end]).unwrap_or("");
+    let needle = format!("{}: {}", CONFIG_TOKEN_HEADER, CONFIG_TOKEN);
+    head.lines().any(|line| {
+        let l = line.trim_end();
+        l.eq_ignore_ascii_case(&needle)
+            // Some clients send no space after the colon: "Name:value".
+            || l.eq_ignore_ascii_case(
+                format!("{}{}", CONFIG_TOKEN_HEADER, CONFIG_TOKEN).as_str(),
+            )
+    })
+}
+
 async fn serve_html(socket: &mut embassy_net::tcp::TcpSocket<'static>) {
-    println!("HTTP: serving index.html ({} bytes)", INDEX_HTML.len());
-    send_response(socket, "200 OK", "text/html", INDEX_HTML.as_bytes()).await;
+    let html = injected_index_html();
+    println!("HTTP: serving index.html ({} bytes)", html.len());
+    send_response(socket, "200 OK", "text/html", &html).await;
 }
 
 async fn serve_config(socket: &mut embassy_net::tcp::TcpSocket<'static>) {
@@ -179,39 +299,65 @@ async fn serve_config(socket: &mut embassy_net::tcp::TcpSocket<'static>) {
     send_response(socket, "200 OK", "application/json", data).await;
 }
 
-async fn handle_post_config(socket: &mut embassy_net::tcp::TcpSocket<'static>, body: &[u8]) {
+/// Validate the body of a (size-checked) `POST /config` and, on `Accepted`,
+/// store it. Returns the led-core result so the caller can choose the
+/// response (the 413 size path is handled by the caller, since the body the
+/// read loop accumulates is capped at `CONFIG_MAX` and so cannot itself
+/// trigger led-core's `TooLarge` — only the declared `Content-Length` can).
+fn handle_post_config(body: &[u8]) -> http::ConfigPostResult {
     let result = http::validate_config_post(body, CONFIG_MAX);
-    if result == http::ConfigPostResult::Accepted {
-        if config_set(body) {
-            println!("HTTP: config updated ({} bytes)", body.len());
-        } else {
-            println!("HTTP: config too large to store");
+    match result {
+        // `Accepted`: persist the new config; the LED task picks it up on its
+        // next cycle. `OutOfRange` (a value the semantic bounds reject, e.g.
+        // `steps`/duration/counts past the caps) is handled explicitly so the
+        // new "value out of range" error reaches the client rather than being
+        // silently swallowed by a generic arm. Both send `ok:false` (see
+        // led-core's `config_post_body`/`config_post_status`).
+        http::ConfigPostResult::Accepted => {
+            if config_set(body) {
+                println!("HTTP: config updated ({} bytes)", body.len());
+            } else {
+                println!("HTTP: config too large to store");
+            }
         }
+        http::ConfigPostResult::OutOfRange => {
+            println!("HTTP: config rejected — value out of range");
+        }
+        // TooLarge / NoEffects / BadJson — no state change.
+        _ => {}
     }
-    send_response(
-        socket,
-        http::config_post_status(result),
-        "application/json",
-        http::config_post_body(result),
-    )
-    .await;
+    result
 }
 
 async fn handle_client(socket: &mut embassy_net::tcp::TcpSocket<'static>) {
     // Accumulate the request (headers + body) in a heap Vec so we can keep a
     // reference across `.await` points without holding a `&mut` to a static.
-    let mut buf: Vec<u8> = Vec::with_capacity(4096);
-    let mut chunk = [0u8; 512];
+    let mut buf: Vec<u8> = Vec::with_capacity(CONFIG_MAX);
+    let mut chunk = [0u8; READ_CHUNK_BYTES];
 
     loop {
-        if buf.len() >= 4096 {
+        // Stop once the buffer holds CONFIG_MAX bytes: any larger body would
+        // be truncated, and the declared Content-Length is checked (below) to
+        // surface a 413 instead of a misleading "bad json".
+        if buf.len() >= CONFIG_MAX {
             break;
         }
-        let n = match socket.read(&mut chunk[..]).await {
-            Ok(0) => break,
-            Ok(n) => n,
-            Err(e) => {
+        // Race the read against the idle timeout so a client that connects and
+        // then goes silent cannot hold this (the only) connection forever. On
+        // timeout, abort the socket and return to `accept` (the server loop
+        // tears down and re-accepts the next client).
+        let read = with_timeout(IDLE_READ_TIMEOUT, socket.read(&mut chunk[..]));
+        let n = match read.await {
+            Ok(Ok(0)) => break, // client closed its write half
+            Ok(Ok(n)) => n,
+            Ok(Err(e)) => {
                 println!("HTTP: read error: {:?}", e);
+                return;
+            }
+            // No data within the idle budget: drop the connection and recover.
+            Err(_) => {
+                println!("HTTP: idle read timeout, dropping connection");
+                socket.abort();
                 return;
             }
         };
@@ -243,7 +389,49 @@ async fn handle_client(socket: &mut embassy_net::tcp::TcpSocket<'static>) {
     match http::route(req.method, req.path) {
         http::Route::Index => serve_html(socket).await,
         http::Route::GetConfig => serve_config(socket).await,
-        http::Route::PostConfig => handle_post_config(socket, req.body).await,
+        http::Route::PostConfig => {
+            // Auth gate: a config rewrite must carry the token header. GET
+            // routes (above) stay open so the page still loads.
+            if !config_token_provided(&buf) {
+                println!("HTTP: POST /config rejected — missing/bad token header");
+                send_response(
+                    socket,
+                    "403 Forbidden",
+                    "application/json",
+                    b"{\"ok\":false,\"error\":\"unauthorized\"}",
+                )
+                .await;
+            } else {
+                // Make 413 reachable: the read loop caps accumulation at
+                // CONFIG_MAX, so an oversized body is truncated and would
+                // surface as a misleading "bad json" (400). Instead, check the
+                // DECLARED Content-Length against the cap first — if the client
+                // promised more than CONFIG_MAX bytes, that's the true size and
+                // must be a 413, not a 400.
+                if req.content_length > CONFIG_MAX {
+                    println!(
+                        "HTTP: POST /config rejected — Content-Length {} > cap {}",
+                        req.content_length, CONFIG_MAX
+                    );
+                    send_response(
+                        socket,
+                        "413 Payload Too Large",
+                        "application/json",
+                        b"{\"ok\":false,\"error\":\"too large\"}",
+                    )
+                    .await;
+                } else {
+                    let result = handle_post_config(req.body);
+                    send_response(
+                        socket,
+                        http::config_post_status(result),
+                        "application/json",
+                        http::config_post_body(result),
+                    )
+                    .await;
+                }
+            }
+        }
         http::Route::NotFound => {
             println!("HTTP: 404 for {} {}", req.method, req.path);
             send_response(socket, "404 Not Found", "text/html", HTML_404).await;
@@ -411,7 +599,7 @@ async fn main(spawner: Spawner) -> ! {
     let (stack, runner) = embassy_net::new(
         wifi_interface,
         net_config,
-        Box::leak(Box::new(StackResources::<3>::new())),
+        mk_static!(StackResources<3>, StackResources::<3>::new()),
         0,
     );
 
@@ -450,8 +638,10 @@ async fn http_server_task(stack: embassy_net::Stack<'static>) -> ! {
     static TX_BUF: StaticBuf<16384> = StaticBuf::new();
 
     loop {
-        // SAFETY: this task owns the buffers for the whole accept/handle cycle
-        // (single connection at a time; no concurrent access).
+        // SAFETY: only this task ever borrows `RX_BUF`/`TX_BUF` (they live in
+        // this task), and it owns them for the whole accept/handle/teardown
+        // cycle — no other task or interrupt aliases them. `TcpSocket::new`
+        // transmutes them to `'static`, so they must live in a `static` here.
         let mut socket = embassy_net::tcp::TcpSocket::new(stack, RX_BUF.as_mut(), TX_BUF.as_mut());
         let _ = socket.accept(80).await;
         handle_client(&mut socket).await;
