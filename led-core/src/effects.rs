@@ -161,15 +161,27 @@ mod tests {
         assert_eq!(cycle_frame_count(&cfg), 0);
     }
 
+    // Synthetic fixture (not the shipped effects.json): a blink followed by a
+    // blend. The logic assertions (frame expansion, frame count, duration
+    // accumulation, non-zero holds) live here on a config defined in the test
+    // file, so a legitimate edit to the shipped fixture cannot break them.
     #[test]
-    fn default_config_expands_sensibly() {
-        let cfg = parse_config(include_str!("../../configs/effects.json")).unwrap();
+    fn synthetic_config_expands_sensibly() {
+        let cfg = parse_config(
+            r#"{
+                "effects": [
+                    {"type":"blink","colors":[[255,0,0],[0,255,0],[0,0,255]],"duration_ms":300},
+                    {"type":"blend","from":[255,0,0],"to":[0,255,255],"steps":20,"step_ms":100}
+                ]
+            }"#,
+        )
+        .unwrap();
         let steps = cycle_steps(&cfg);
-        // 4 effects: blink(3) + blend(20+1) + blink(2) + blend(15+1) = 42 frames.
-        assert_eq!(steps.len(), 42);
-        assert_eq!(cycle_frame_count(&cfg), 42);
-        // Cycle time: 3*300 + 21*100 + 2*200 + 16*80 = 900+2100+400+1280 = 4680 ms.
-        assert_eq!(cycle_duration_ms(&cfg), 4680);
+        // blink(3) + blend(20+1) = 24 frames.
+        assert_eq!(steps.len(), 24);
+        assert_eq!(cycle_frame_count(&cfg), 24);
+        // 3*300 + 21*100 = 900 + 2100 = 3000 ms.
+        assert_eq!(cycle_duration_ms(&cfg), 3000);
         // Every step's color and hold is well-formed.
         for s in &steps {
             assert!(s.hold_ms > 0);

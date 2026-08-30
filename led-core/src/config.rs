@@ -92,36 +92,19 @@ mod tests {
     /// The shipped default config (configs/effects.json), embedded at build time.
     const DEFAULT_JSON: &str = include_str!("../../configs/effects.json");
 
+    // The single "golden" test for the shipped fixture: it asserts only that
+    // `configs/effects.json` *parses* and is a *valid* (non-empty) config. It
+    // deliberately does NOT assert the specific effects, colors, frame counts,
+    // or durations — a legitimate edit to the shipped file must not break this
+    // test (that churn is exactly why the logic assertions live on synthetic
+    // fixtures in the test files instead).
     #[test]
-    fn default_config_parses() {
-        let cfg = parse_config(DEFAULT_JSON).expect("default config must be valid JSON");
-        assert_eq!(cfg.effects.len(), 4, "effects.json ships with 4 effects");
-
-        match &cfg.effects[0] {
-            LedEffect::Blink {
-                colors,
-                duration_ms,
-            } => {
-                assert_eq!(colors, &[[255, 0, 0], [0, 255, 0], [0, 0, 255]]);
-                assert_eq!(*duration_ms, 300);
-            }
-            other => panic!("expected blink first, got {:?}", other),
-        }
-
-        match &cfg.effects[1] {
-            LedEffect::Blend {
-                from,
-                to,
-                steps,
-                step_ms,
-            } => {
-                assert_eq!(*from, [255, 0, 0]);
-                assert_eq!(*to, [0, 255, 255]);
-                assert_eq!(*steps, 20);
-                assert_eq!(*step_ms, 100);
-            }
-            other => panic!("expected blend second, got {:?}", other),
-        }
+    fn shipped_config_parses_and_is_valid() {
+        let cfg = parse_config(DEFAULT_JSON).expect("shipped effects.json must be valid JSON");
+        assert!(
+            !cfg.is_empty(),
+            "shipped effects.json must contain at least one effect"
+        );
     }
 
     #[test]

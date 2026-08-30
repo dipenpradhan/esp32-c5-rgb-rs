@@ -34,26 +34,47 @@ fn shipped_wifi_config_is_valid_and_matches_firmware_expectation() {
         .validate()
         .expect("shipped creds must be within ESP32 limits");
 
-    // The firmware connects to this exact SSID. This is the contract: the
-    // config file, not a code constant, is the source of truth.
-    assert_eq!(creds.ssid, "D");
-    // The password must be a valid WPA2-PSK length (8..=63).
-    assert!((8..=63).contains(&creds.password.len()));
+    // The config file, not a code constant, is the source of truth — so we
+    // assert *properties* of the shipped values, never their identity.
+    // SSID must fit the ESP32 1..=32 byte limit.
+    assert!((1..=32).contains(&creds.ssid.len()));
+    // Password is either an open network (empty) or a valid WPA2-PSK (8..=63).
+    assert!(creds.password.is_empty() || (8..=63).contains(&creds.password.len()));
+    // No leading/trailing whitespace in either field.
+    assert_eq!(creds.ssid.trim(), creds.ssid);
+    assert_eq!(creds.password.trim(), creds.password);
 }
 
 #[test]
 fn credentials_flow_into_driver_config_unmodified() {
     // The firmware does:
     //   StationConfig::default().with_ssid(WIFI_SSID).with_password(WIFI_PASS)
-    // with WIFI_SSID/WIFI_PASS sourced from this config. Assert the exact
-    // strings that reach the driver are byte-identical to the config (no
-    // trimming/casing/side-effects).
-    let creds = default_wifi_config().unwrap();
-    assert_eq!(creds.ssid.as_bytes(), b"D");
-    assert!(!creds.password.is_empty());
-    // No leading/trailing whitespace sneaked in.
-    assert_eq!(creds.ssid.trim(), creds.ssid);
-    assert_eq!(creds.password.trim(), creds.password);
+    // with WIFI_SSID/WIFI_PASS sourced from configs/wifi.json. Parsing must
+    // hand back the exact bytes the file holds - no trimming, case folding,
+    // unicode normalization or escaping side-effects. Checked against
+    // synthetic values rather than the shipped config, so the assertion stays
+    // sharp whatever configs/wifi.json happens to contain.
+    for (ssid, password) in [
+        ("MixedCase SSID", "P@ssw0rd!#$%^&*()"),
+        ("  padded ssid  ", "  padded password  "),
+        ("ssid-with-dash_and.dot", "  interior spaces kept  "),
+        ("Unicode-SSID-\u{2713}", "passwoerd-\u{fc}nicode"),
+        ("x", "12345678"),
+    ] {
+        let creds =
+            parse_wifi_config(&creds_json(ssid, password)).expect("synthetic creds must parse");
+        assert_eq!(creds.ssid.as_bytes(), ssid.as_bytes(), "ssid was mangled");
+        assert_eq!(
+            creds.password.as_bytes(),
+            password.as_bytes(),
+            "password was mangled"
+        );
+    }
+
+    // The shipped config itself must carry no stray surrounding whitespace.
+    let shipped = default_wifi_config().expect("configs/wifi.json must parse");
+    assert_eq!(shipped.ssid.trim(), shipped.ssid);
+    assert_eq!(shipped.password.trim(), shipped.password);
 }
 
 #[test]

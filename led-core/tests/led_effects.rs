@@ -4,7 +4,7 @@
 //! the *observable LED behavior* end-to-end:
 //!
 //! - the exact frame sequence (colors, in GRB wire order) emitted for one full
-//!   cycle of the shipped `configs/effects.json`,
+//!   cycle of a multi-effect config (synthetic, defined below),
 //! - timing (74 µs per frame + the per-step hold),
 //! - live reconfiguration: a new `POST /config`-shaped JSON changes the next
 //!   cycle's frames,
@@ -18,16 +18,29 @@ use led_core::config::{parse_config, LedConfig};
 use led_core::effects::{cycle_duration_ms, cycle_steps};
 use led_core::ws2812::{encode_rgb, Ws2812Frame, FRAME_US};
 
-/// The shipped default config (configs/effects.json).
-const DEFAULT_JSON: &str = include_str!("../../configs/effects.json");
+/// A synthetic multi-effect config that mirrors the shape of the shipped
+/// `configs/effects.json` (4 effects: blink(3) + blend(20) + blink(2) +
+/// blend(15)). All logic assertions in this file run against *this* fixture
+/// (defined here, in the test), not the shipped file — so a legitimate edit to
+/// `configs/effects.json` does not break these tests for the wrong reason.
+/// The single golden check that the shipped file parses and is valid lives in
+/// `config.rs::tests::shipped_config_parses_and_is_valid`.
+const FIXTURE_JSON: &str = r#"{
+  "effects": [
+    { "type": "blink", "colors": [[255,0,0],[0,255,0],[0,0,255]], "duration_ms": 300 },
+    { "type": "blend", "from": [255,0,0], "to": [0,255,255], "steps": 20, "step_ms": 100 },
+    { "type": "blink", "colors": [[255,255,255],[0,0,0]], "duration_ms": 200 },
+    { "type": "blend", "from": [0,255,0], "to": [255,0,255], "steps": 15, "step_ms": 80 }
+  ]
+}"#;
 
-fn default_config() -> LedConfig {
-    parse_config(DEFAULT_JSON).expect("shipped config must parse")
+fn fixture_config() -> LedConfig {
+    parse_config(FIXTURE_JSON).expect("fixture config must parse")
 }
 
 #[test]
-fn one_cycle_of_default_config_emits_expected_frames() {
-    let steps = cycle_steps(&default_config());
+fn one_cycle_of_fixture_emits_expected_frames() {
+    let steps = cycle_steps(&fixture_config());
     // 4 effects: blink(3) + blend(21) + blink(2) + blend(16) = 42 frames.
     assert_eq!(steps.len(), 42);
 
@@ -61,10 +74,10 @@ fn one_cycle_of_default_config_emits_expected_frames() {
 }
 
 #[test]
-fn default_cycle_timing() {
+fn fixture_cycle_timing() {
     // 3*300 + 21*100 + 2*200 + 16*80 = 4680 ms of holds + 42 frames × 74 µs
     // of blocking bit-bang (negligible but real).
-    let cfg = default_config();
+    let cfg = fixture_config();
     assert_eq!(cycle_duration_ms(&cfg), 4680);
     let steps = cycle_steps(&cfg);
     let total_block_us: u64 = steps.iter().map(|_| FRAME_US as u64).sum();
@@ -75,7 +88,7 @@ fn default_cycle_timing() {
 fn live_reconfigure_changes_next_cycle() {
     // The LED task: parse current config → run cycle → re-check version →
     // (on change) re-parse → run the new cycle. This mirrors led_task exactly.
-    let mut stored = DEFAULT_JSON.as_bytes().to_vec();
+    let mut stored = FIXTURE_JSON.as_bytes().to_vec();
 
     fn parse_stored(stored: &[u8]) -> LedConfig {
         parse_config(core::str::from_utf8(stored).unwrap()).unwrap()

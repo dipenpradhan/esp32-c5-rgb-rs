@@ -25,15 +25,21 @@ pub fn interpolate(from: &Rgb, to: &Rgb, step: u32, total: u32) -> Rgb {
 /// - `from == to` is exactly `from` at every step (no integer-drift),
 /// - the result is monotonic between the endpoints.
 ///
+/// The arithmetic is in `i64`, not `i32`: `step` is a `u32` that can exceed
+/// `i32::MAX`, and `delta * step` (|delta| ≤ 255, step up to ~4.3e9) can
+/// exceed `i32::MAX` for any step past ~8.4e6. In `i64` the product is always
+/// ≤ ~1.1e12, far below `i64::MAX`, so this is correct for *any* `step`
+/// without relying on the caller having validated it (defence in depth).
+///
 /// `total == 0` returns `from` (avoids division by zero when a blend has
 /// zero steps).
 pub fn lerp_u8(from: u8, to: u8, step: u32, total: u32) -> u8 {
     if total == 0 {
         return from;
     }
-    let from_i = from as i32;
-    let delta = to as i32 - from_i;
-    let v = from_i + delta * step as i32 / total as i32;
+    let from_i = from as i64;
+    let delta = to as i64 - from_i;
+    let v = from_i + delta * step as i64 / total as i64;
     v.clamp(0, 255) as u8
 }
 
@@ -124,5 +130,19 @@ mod tests {
         let from: Rgb = [1, 2, 3];
         let to: Rgb = [4, 5, 6];
         assert_eq!(interpolate(&from, &to, 0, 0), from);
+    }
+
+    #[test]
+    fn lerp_u8_overflow_proof() {
+        // `step` is a u32 taken straight from the (network-supplied) config, so
+        // a huge value is a realistic input, not a corner case. With the old
+        // i32 arithmetic (`delta * step as i32`), the product 255 * 9_000_000
+        // = 2_295_000_000 exceeds i32::MAX (2_147_483_647): it panics in debug
+        // builds and silently wraps (garbage colours) in release. The correct
+        // result is simply clamped to the far endpoint, `to`.
+        assert_eq!(lerp_u8(0, 255, 9_000_000, 10), 255);
+        // Descending case: the product is negative and underflows i32::MIN the
+        // same way; the result clamps to `to` = 0.
+        assert_eq!(lerp_u8(255, 0, 9_000_000, 10), 0);
     }
 }

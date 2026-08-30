@@ -12,8 +12,6 @@
 //! - `GET /config` → the current effect config JSON.
 //! - `POST /config` → replace the effect config (validated here).
 
-use alloc::string::String;
-
 use crate::config::parse_config;
 
 /// A parsed HTTP request (headers + body already accumulated by the caller).
@@ -43,7 +41,8 @@ pub enum Route {
 /// The outcome of validating a `POST /config` body.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConfigPostResult {
-    /// The body is valid JSON with ≥1 effect and fits in `max`.
+    /// The body is valid JSON with ≥1 effect, fits in `max`, and every field
+    /// is within the sanity bounds in [`validate_config_post`].
     Accepted,
     /// The body is too large to store.
     TooLarge,
@@ -51,13 +50,24 @@ pub enum ConfigPostResult {
     NoEffects,
     /// The body is not valid config JSON.
     BadJson,
+    /// The body is valid JSON with ≥1 effect, but some field falls outside the
+    /// sanity bounds (e.g. `steps` too large, `steps == 0`, too many effects
+    /// or colors, or a duration too large). Distinct from [`BadJson`] so the
+    /// web UI can show the user that their JSON parsed but a value was
+    /// rejected, rather than a misleading "bad json".
+    OutOfRange,
 }
+
+/// Upper bound on the decimal width of a `usize` — the largest buffer
+/// [`write_uint`] can ever need.
+pub const UINT_BUF_BYTES: usize = 20; // enough for a 64-bit usize
 
 /// Write `n` as decimal ASCII into `buf`; returns the number of bytes written.
 ///
-/// `buf` must be at least [`UINT_BUF_BYTES`] long.
-pub const UINT_BUF_BYTES: usize = 20; // enough for a 64-bit usize
-
+/// `buf` must hold `n`'s decimal digits: [`UINT_BUF_BYTES`] is always enough,
+/// but only as many bytes as `n` actually has are touched, so a caller that
+/// knows `n`'s width may pass a shorter slice (`build_response_header` does).
+/// Panics if `buf` is shorter than that.
 pub fn write_uint(buf: &mut [u8], n: usize) -> usize {
     let mut digits = [0u8; UINT_BUF_BYTES];
     let mut i = digits.len();
@@ -74,6 +84,17 @@ pub fn write_uint(buf: &mut [u8], n: usize) -> usize {
     let len = digits.len() - i;
     buf[..len].copy_from_slice(&digits[i..]);
     len
+}
+
+/// Number of decimal ASCII digits `n` needs (i.e. what `write_uint` writes).
+fn digit_count(n: usize) -> usize {
+    let mut n = n;
+    let mut digits = 1;
+    while n >= 10 {
+        n /= 10;
+        digits += 1;
+    }
+    digits
 }
 
 /// Index of the `"\r\n\r\n"` header terminator, if present in `buf`.
@@ -136,15 +157,89 @@ pub fn route(method: &str, path: &str) -> Route {
     }
 }
 
+/// Sanity bounds for a `POST /config` body. These are network-reachable
+/// limits: an attacker (or a buggy UI) can otherwise make the LED task's
+/// `cycle_steps` expand a config into a `Vec<Step>` with billions of elements
+/// on a device whose heap is 8 KiB–100 KiB — a trivial out-of-memory denial
+/// of service. Each bound is chosen so a legitimate human config always fits
+/// while the worst-case expansion stays well under the *smallest* heap:
+///
+/// - [`MAX_TOTAL_FRAMES`] is the real heap guard: `cycle_steps` builds one
+///   `Vec<Step>` for the whole cycle, and a `Step` is 8 bytes, so 512 frames
+///   = 4096 bytes (4 KiB) — fits the 8 KiB minimum heap with headroom.
+/// - The per-effect/per-field bounds keep any single field from being absurd
+///   on its own (they are the *strongest* constraints when only one effect
+///   is misconfigured, but the total-frame bound is what caps the allocation).
+const MAX_EFFECTS: usize = 32;
+/// Most effects a human would sequence; well below the total-frame cap.
+const MAX_COLORS_PER_EFFECT: usize = 64;
+/// A blend's `steps`: `steps + 1` frames; 64 keeps a single blend to ≤65 frames.
+const MAX_STEPS_PER_BLEND: u32 = 64;
+/// Total frames one full cycle may expand to. `512 * size_of::<Step>()`
+/// (8 bytes) = 4096 bytes (4 KiB), which fits the 8 KiB minimum device heap
+/// with headroom; a hand-tuned config of a few effects sits far below this.
+const MAX_TOTAL_FRAMES: usize = 512;
+/// Maximum hold per frame (ms). A human configures second-scale holds; 1
+/// minute is a generous ceiling. Beyond it the LED looks frozen, and a u32
+/// max (~49 days) is clearly not a sane per-frame hold.
+const MAX_DURATION_MS: u32 = 60_000;
+
+/// True if every field of `cfg` is within the sanity bounds in
+/// [`MAX_EFFECTS`]/[`MAX_COLORS_PER_EFFECT`]/[`MAX_STEPS_PER_BLEND`]/
+/// [`MAX_TOTAL_FRAMES`]/[`MAX_DURATION_MS`]. Called only after the config has
+/// parsed and has ≥1 effect.
+///
+/// The cheap per-field bounds are checked *before* the total-frame sum: that
+/// way `LedEffect::frame_count()` (which does `steps + 1`) is only ever called
+/// once every `steps` is known to be ≤ [`MAX_STEPS_PER_BLEND`], so the sum is
+/// bounded by `MAX_EFFECTS × (MAX_STEPS_PER_BLEND + 1)` and cannot overflow
+/// `usize` even on a 32-bit target. Summing first would let a malicious
+/// `steps: u32::MAX` overflow `frame_count` on the device during validation.
+fn config_in_bounds(cfg: &crate::config::LedConfig) -> bool {
+    if cfg.effects.len() > MAX_EFFECTS {
+        return false;
+    }
+    for e in &cfg.effects {
+        match e {
+            crate::config::LedEffect::Blink {
+                colors,
+                duration_ms,
+            } => {
+                if colors.len() > MAX_COLORS_PER_EFFECT || *duration_ms > MAX_DURATION_MS {
+                    return false;
+                }
+            }
+            crate::config::LedEffect::Blend { steps, step_ms, .. } => {
+                // `steps == 0` is accepted by the parser but makes the web UI
+                // compute 0/0 = NaN and freeze its preview; reject it here.
+                if *steps < 1 || *steps > MAX_STEPS_PER_BLEND || *step_ms > MAX_DURATION_MS {
+                    return false;
+                }
+            }
+        }
+    }
+    // The real heap guard: bound the total frames `cycle_steps` will allocate
+    // into its `Vec<Step>`. Safe to sum here because the per-field bounds above
+    // already cap each effect's frame count.
+    let total_frames: usize = cfg.effects.iter().map(|e| e.frame_count()).sum();
+    total_frames <= MAX_TOTAL_FRAMES
+}
+
 /// Validate a `POST /config` body against `max` (max storable size).
+///
+/// Checks, in order: body size, UTF-8 + JSON parseability, non-empty, and the
+/// field-range sanity bounds in [`config_in_bounds`]. The size/parse checks
+/// return the pre-existing [`ConfigPostResult`] variants; a body that parses
+/// and has ≥1 effect but fails the range bounds returns [`OutOfRange`].
 pub fn validate_config_post(body: &[u8], max: usize) -> ConfigPostResult {
     if body.len() > max {
         return ConfigPostResult::TooLarge;
     }
     let body_str = core::str::from_utf8(body).unwrap_or("");
     match parse_config(body_str) {
-        Ok(cfg) if !cfg.is_empty() => ConfigPostResult::Accepted,
-        Ok(_) => ConfigPostResult::NoEffects,
+        Ok(cfg) if cfg.is_empty() => ConfigPostResult::NoEffects,
+        Ok(cfg) if config_in_bounds(&cfg) => ConfigPostResult::Accepted,
+        Ok(_) => ConfigPostResult::OutOfRange,
         Err(_) => ConfigPostResult::BadJson,
     }
 }
@@ -156,6 +251,7 @@ pub fn config_post_body(result: ConfigPostResult) -> &'static [u8] {
         ConfigPostResult::TooLarge => b"{\"ok\":false,\"error\":\"too large\"}",
         ConfigPostResult::NoEffects => b"{\"ok\":false,\"error\":\"no effects\"}",
         ConfigPostResult::BadJson => b"{\"ok\":false,\"error\":\"bad json\"}",
+        ConfigPostResult::OutOfRange => b"{\"ok\":false,\"error\":\"value out of range\"}",
     }
 }
 
@@ -164,14 +260,21 @@ pub fn config_post_status(result: ConfigPostResult) -> &'static str {
     match result {
         ConfigPostResult::Accepted => "200 OK",
         ConfigPostResult::TooLarge => "413 Payload Too Large",
-        ConfigPostResult::NoEffects | ConfigPostResult::BadJson => "400 Bad Request",
+        ConfigPostResult::NoEffects | ConfigPostResult::BadJson | ConfigPostResult::OutOfRange => {
+            "400 Bad Request"
+        }
     }
 }
 
 /// Build an HTTP/1.1 response header (with `Content-Length` and
 /// `Connection: close`) into `out`, returning the number of bytes written.
 ///
-/// `out` must be at least [`RESPONSE_HEADER_BYTES`] long.
+/// Callers should pass at least [`RESPONSE_HEADER_BYTES`] (enough for any
+/// status line, `Content-Type`, and a full-width `Content-Length`). With a
+/// smaller `out`, the header is truncated at the buffer boundary (the
+/// decimal length is written only if it fits entirely) and the returned
+/// length is correspondingly smaller; the function never writes past the
+/// end of `out`.
 pub const RESPONSE_HEADER_BYTES: usize = 192;
 
 pub fn build_response_header(
@@ -188,32 +291,37 @@ pub fn build_response_header(
         content_type.as_bytes(),
         b"\r\nContent-Length: ",
     ] {
-        out[pos..pos + chunk.len()].copy_from_slice(chunk);
-        pos += chunk.len();
+        // Bound every write by `out`'s length: a buffer smaller than
+        // [`RESPONSE_HEADER_BYTES`] is truncated, never overflowed.
+        let end = (pos + chunk.len()).min(out.len());
+        out[pos..end].copy_from_slice(&chunk[..end - pos]);
+        pos = end;
+        if pos == out.len() {
+            break;
+        }
     }
-    pos += write_uint(&mut out[pos..], body_len);
+    // The decimal `body_len` is written only if it fits whole: a partially
+    // written number would silently change its value.
+    if out.len() - pos >= digit_count(body_len) {
+        pos += write_uint(&mut out[pos..], body_len);
+    }
     let tail = b"\r\nConnection: close\r\n\r\n";
-    out[pos..pos + tail.len()].copy_from_slice(tail);
-    pos + tail.len()
-}
-
-/// Serialize an effect list to compact JSON (for the web UI `Save`).
-/// Returns `None` if serialization would need the heap and it is unavailable,
-/// but in practice always `Some` for valid configs.
-#[allow(clippy::result_unit_err)]
-pub fn config_to_json(cfg: &crate::config::LedConfig) -> Result<String, ()> {
-    serde_json::to_string(cfg).map_err(|_| ())
+    let end = (pos + tail.len()).min(out.len());
+    out[pos..end].copy_from_slice(&tail[..end - pos]);
+    end
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::format;
+    use alloc::string::String;
     use alloc::vec::Vec;
 
     fn req(line: &str, extra_headers: &str, body: &str) -> Vec<u8> {
         let mut v = Vec::new();
         v.extend_from_slice(line.as_bytes());
-        v.extend_from_slice(b"Host: REDACTED_LAN_IP\r\n");
+        v.extend_from_slice(b"Host: 127.0.0.1\r\n");
         v.extend_from_slice(extra_headers.as_bytes());
         v.extend_from_slice(b"\r\n");
         v.extend_from_slice(body.as_bytes());
@@ -355,6 +463,126 @@ mod tests {
         );
     }
 
+    /// A blend whose `steps` is large enough to overflow the old `i32` lerp
+    /// and to blow the 8 KiB heap — the original DoS vector. Must be rejected
+    /// as out-of-range, not accepted.
+    #[test]
+    fn validate_config_post_rejects_huge_blend_steps() {
+        // 4.3e9 steps × 1 µs is ~49 days per frame and would make
+        // `cycle_steps` try to allocate 4.3e9 × 8 bytes.
+        let body = b"{\"effects\":[{\"type\":\"blend\",\"from\":[0,0,0],\"to\":[255,255,255],\"steps\":4294967295,\"step_ms\":1}]}";
+        assert_eq!(
+            validate_config_post(body, 4096),
+            ConfigPostResult::OutOfRange
+        );
+    }
+
+    /// `steps == 0` parses fine but freezes the web UI preview (0/0 = NaN).
+    #[test]
+    fn validate_config_post_rejects_zero_blend_steps() {
+        let body = b"{\"effects\":[{\"type\":\"blend\",\"from\":[0,0,0],\"to\":[1,1,1],\"steps\":0,\"step_ms\":5}]}";
+        assert_eq!(
+            validate_config_post(body, 4096),
+            ConfigPostResult::OutOfRange
+        );
+    }
+
+    /// `duration_ms` above the human-plausible ceiling (1 min) is rejected.
+    #[test]
+    fn validate_config_post_rejects_huge_duration() {
+        let body =
+            b"{\"effects\":[{\"type\":\"blink\",\"colors\":[[1,2,3]],\"duration_ms\":4294967295}]}";
+        assert_eq!(
+            validate_config_post(body, 4096),
+            ConfigPostResult::OutOfRange
+        );
+    }
+
+    /// A blend with too many effects is rejected (effect-count bound).
+    #[test]
+    fn validate_config_post_rejects_too_many_effects() {
+        // 33 blink effects × 1 color each = 33 < MAX_TOTAL_FRAMES, so only the
+        // MAX_EFFECTS=32 bound trips.
+        let effects: Vec<String> = (0..33)
+            .map(|i| format!("{{\"type\":\"blink\",\"colors\":[[{i},0,0]],\"duration_ms\":1}}"))
+            .collect();
+        let body = format!("{{\"effects\":[{}]}}", effects.join(","));
+        assert!(body.len() < 4096, "fixture must fit the size cap");
+        assert_eq!(
+            validate_config_post(body.as_bytes(), 4096),
+            ConfigPostResult::OutOfRange
+        );
+    }
+
+    /// A blink with more colors than the per-effect cap is rejected.
+    #[test]
+    fn validate_config_post_rejects_too_many_colors() {
+        // 65 colors > MAX_COLORS_PER_EFFECT (64), but total frames (65) is
+        // still < MAX_TOTAL_FRAMES (512), so this trips the per-effect bound.
+        let colors: Vec<String> = (0..65).map(|i| format!("[{i},0,0]")).collect();
+        let body = format!(
+            "{{\"effects\":[{{\"type\":\"blink\",\"colors\":[{}],\"duration_ms\":1}}]}}",
+            colors.join(",")
+        );
+        assert!(body.len() < 4096, "fixture must fit the size cap");
+        assert_eq!(
+            validate_config_post(body.as_bytes(), 4096),
+            ConfigPostResult::OutOfRange
+        );
+    }
+
+    /// The total-frame heap guard: a config that passes every per-field bound
+    /// but still expands past `MAX_TOTAL_FRAMES` is rejected. Blends are used
+    /// because they expand many frames from a few bytes of JSON (unlike blinks,
+    /// whose per-color JSON size makes the 4096-byte cap hit first).
+    #[test]
+    fn validate_config_post_rejects_total_frame_blowout() {
+        // 8 blends × 64 steps each: steps == MAX_STEPS_PER_BLEND (allowed),
+        // 8 effects < MAX_EFFECTS (32, allowed), but 8 × 65 = 520 frames
+        // > MAX_TOTAL_FRAMES (512) → only the total-frame bound trips.
+        // Each blend is ~80 bytes of JSON, so the body is ~640 bytes (well
+        // under the 4096 cap) yet would allocate 520 × 8 = 4160 bytes of
+        // `Vec<Step>` in `cycle_steps`.
+        let effects: Vec<String> = (0..8)
+            .map(|e| {
+                format!(
+                    "{{\"type\":\"blend\",\"from\":[{e},0,0],\"to\":[{e},255,255],\"steps\":64,\"step_ms\":1}}"
+                )
+            })
+            .collect();
+        let body = format!("{{\"effects\":[{}]}}", effects.join(","));
+        assert!(body.len() < 4096, "fixture must fit the size cap");
+        assert_eq!(
+            validate_config_post(body.as_bytes(), 4096),
+            ConfigPostResult::OutOfRange
+        );
+    }
+
+    /// A config that is right at every bound is still accepted (no off-by-one
+    /// rejection of the legitimate maximum).
+    #[test]
+    fn validate_config_post_accepts_at_bounds() {
+        // 64 colors (== MAX_COLORS_PER_EFFECT), duration 60000 (== cap),
+        // 65 frames total (< 512) → Accepted.
+        let colors: Vec<String> = (0..64).map(|i| format!("[{i},0,0]")).collect();
+        let body = format!(
+            "{{\"effects\":[{{\"type\":\"blink\",\"colors\":[{}],\"duration_ms\":60000}}]}}",
+            colors.join(",")
+        );
+        assert_eq!(
+            validate_config_post(body.as_bytes(), 4096),
+            ConfigPostResult::Accepted
+        );
+
+        // Blend right at steps = 64 (== MAX_STEPS_PER_BLEND) and step_ms = 60000
+        // (== cap) → Accepted (65 frames < 512).
+        let blend = b"{\"effects\":[{\"type\":\"blend\",\"from\":[0,0,0],\"to\":[255,255,255],\"steps\":64,\"step_ms\":60000}]}";
+        assert_eq!(
+            validate_config_post(blend, 4096),
+            ConfigPostResult::Accepted
+        );
+    }
+
     #[test]
     fn post_body_and_status_consistent() {
         for r in [
@@ -362,6 +590,7 @@ mod tests {
             ConfigPostResult::TooLarge,
             ConfigPostResult::NoEffects,
             ConfigPostResult::BadJson,
+            ConfigPostResult::OutOfRange,
         ] {
             // Each outcome maps to a well-formed JSON body and an HTTP status.
             let b = config_post_body(r);
@@ -404,12 +633,62 @@ mod tests {
     }
 
     #[test]
-    fn config_to_json_round_trips() {
+    fn build_response_header_exactly_fills_buffer() {
+        // "HTTP/1.1 " (9) + "200 OK" (6) + "\r\nContent-Type: " (16) +
+        // "text/html" (9) + "\r\nContent-Length: " (18) + "5" (1) +
+        // "\r\nConnection: close\r\n\r\n" (23) = 82 bytes, so this header
+        // fills an 82-byte buffer exactly.
+        let mut h = [0u8; 82];
+        let n = build_response_header(&mut h, "200 OK", "text/html", 5);
+        assert_eq!(n, 82);
+        let s = core::str::from_utf8(&h[..n]).unwrap();
+        assert!(s.starts_with("HTTP/1.1 200 OK\r\n"));
+        assert!(s.contains("Content-Length: 5\r\n"));
+        assert!(s.ends_with("Connection: close\r\n\r\n"));
+    }
+
+    #[test]
+    fn build_response_header_truncates_on_overflow() {
+        // The same 82-byte header with one less byte of room: the guard
+        // truncates at the buffer boundary instead of writing past it.
+        let mut h = [0u8; 81];
+        let n = build_response_header(&mut h, "200 OK", "text/html", 5);
+        assert_eq!(n, 81);
+        let s = core::str::from_utf8(&h[..n]).unwrap();
+        assert!(s.starts_with("HTTP/1.1 200 OK\r\n"));
+        // The last "\r\n" of the `Connection: close` line is cut off.
+        assert!(!s.ends_with("\r\n\r\n"));
+        // The extreme case: an empty buffer writes nothing.
+        assert_eq!(build_response_header(&mut [], "200 OK", "text/html", 5), 0);
+    }
+
+    #[test]
+    fn build_response_header_omits_length_that_does_not_fit() {
+        // The 58-byte fixed prefix ("HTTP/1.1 200 OK\r\nContent-Type:
+        // text/html\r\nContent-Length: ") fits in 67 bytes, but the
+        // full-width `Content-Length` value does not, so it is omitted
+        // rather than written half.
+        let mut h = [0u8; 67];
+        let n = build_response_header(&mut h, "200 OK", "text/html", usize::MAX);
+        assert_eq!(n, 67);
+        let s = core::str::from_utf8(&h[..n]).unwrap();
+        assert!(s.contains("Content-Length: "));
+        assert!(s.ends_with("Content-Length: \r\nConnect"));
+    }
+
+    #[test]
+    fn config_json_round_trips() {
+        // `LedConfig` is `#[derive(Serialize, Deserialize)]`; the web UI's
+        // `Save` path serializes a config and the device re-parses it, so the
+        // round trip through the wire's compact JSON form must preserve the
+        // effect list. This exercises the same serde derive the firmware
+        // relies on (the standalone `config_to_json` helper was removed — it
+        // had zero callers — so we serialize directly via serde_json).
         let cfg = parse_config(
             r#"{"effects":[{"type":"blink","colors":[[1,2,3],[4,5,6]],"duration_ms":100}]}"#,
         )
         .unwrap();
-        let json = config_to_json(&cfg).unwrap();
+        let json = serde_json::to_string(&cfg).unwrap();
         let cfg2 = parse_config(&json).unwrap();
         // One effect with two colors survives the round trip.
         assert_eq!(cfg2.effects.len(), 1);

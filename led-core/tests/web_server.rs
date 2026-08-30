@@ -102,7 +102,7 @@ fn serve(stream: &[u8], store: &mut Vec<u8>) -> Response {
 fn http_request(method: &str, path: &str, body: &str) -> Vec<u8> {
     let mut v = Vec::new();
     v.extend_from_slice(format!("{method} {path} HTTP/1.1\r\n").as_bytes());
-    v.extend_from_slice(b"Host: REDACTED_LAN_IP\r\n");
+    v.extend_from_slice(b"Host: 127.0.0.1\r\n");
     if !body.is_empty() {
         v.extend_from_slice(format!("Content-Length: {}\r\n", body.len()).as_bytes());
     }
