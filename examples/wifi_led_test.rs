@@ -1,8 +1,8 @@
 #![no_std]
 #![no_main]
 
-//! Phase-colored WiFi init test.
-//! Each phase writes a REAL WS2812 color frame (with 50us reset) so the
+//! Blocking WiFi init test with phase colors.
+//! Each phase writes a real WS2812 color frame (with 50us reset) so the
 //! LED reliably shows exactly how far the firmware got.
 //!
 //!   RED        = firmware started (main entry)
@@ -11,8 +11,11 @@
 //!   MAGENTA    = WiFi station config ready
 //!   WHITE      = right before WifiController::new()
 //!   GREEN      = WifiController::new() OK
-//!   CYAN       = connecting (about to call connect_async in async version)
-//!   FLASH RED  = WiFi init failed
+//!   Blink RED  = WifiController::new() failed — blinks N times where N is
+//!                the numeric WifiError code (1=Unsupported, 2=InvalidArguments,
+//!                3=Failed, 4=OutOfMemory, 5=InvalidSsid, 6=InvalidPassword,
+//!                7=NotConnected, 8=any other variant), then pauses 1.5 s
+//!                and repeats forever.
 
 extern crate alloc;
 
