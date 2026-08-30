@@ -3,6 +3,7 @@ name = "led-core"
 version = "0.1.0"
 edition = "2021"
 description = "Pure, hardware-independent logic for the ESP32-C5 RGB LED project (host-testable)"
+license = "Apache-2.0"
 
 # Only serde + serde_json: no hardware dependencies, so this crate compiles and
 # its tests run on the host (x86_64) as well as on the RISC-V firmware target.

@@ -165,3 +165,16 @@ budget.
 ├── forks/              # local esp-radio fork; GITIGNORED — see caveat 1
 └── thirdparty/         # esp-wifi-sys-esp32c5 prebuilt blobs — see caveat 5
 ```
+
+## License
+
+Apache-2.0 — see `LICENSE`. Both `Cargo.toml` manifests declare
+`license = "Apache-2.0"`.
+
+The declaration covers this project's own source only.
+`thirdparty/esp-wifi-sys-esp32c5/` ships ~17 MB of prebuilt Espressif binary
+blobs with no LICENSE, COPYING, or NOTICE file anywhere in that directory
+(see Known issues, caveat 5): their licence is unrecorded and must be
+established before this repo is redistributed. `forks/esp-radio` is a fork
+of esp-hal, which is dual-licensed Apache-2.0/MIT upstream; it is gitignored
+and not distributed with the repo (caveat 1).
