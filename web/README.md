@@ -26,11 +26,17 @@ that gets compiled into the firmware.
 
 ## Size budget
 
-The built page is **16163 bytes**. The firmware's TCP TX buffer is **16384
-bytes** (`StaticBuf<16384>` in `examples/web_server.rs`), leaving only ~221
-bytes of headroom for the HTTP framing around the page. Adding a font, a large
-CSS block or an inlined SVG can push the page past what fits a single-write
-delivery. Check the size of `dist/index.html` after any build.
+The built page is **16292 bytes**. `GET /` serves the page plus an injected
+token script (72 bytes) and the HTTP header (~86 bytes) — about **16450 bytes
+on the wire**. The firmware's TX buffer is **20480 bytes**
+(`StaticBuf<20480>` in `examples/web_server.rs`), sized for that served
+payload: 16 KiB + 4 KiB of headroom, so the page could grow roughly 25% before
+the buffer needs another look. Because `send_response` loops on partial
+writes, an undersized buffer only costs extra write round-trips — it can never
+silently truncate the page again (that 16384-byte truncation was the 2026-08
+blank-page regression). Still, check the size of `dist/index.html` after any
+build: a large font, CSS block, or inlined SVG grows the served payload and
+eats the headroom.
 
 ## Endpoints the UI talks to
 

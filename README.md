@@ -26,8 +26,8 @@ This is NOT a cargo workspace — two independent packages, each with its own
 | Directory | What it is |
 |---|---|
 | `.` (root, `esp32-c5-rgb-rs`) | The firmware. `no_std`, target `riscv32imac-unknown-none-elf`. `src/main.rs` (the default binary) plus 9 binaries in `examples/`. |
-| `led-core/` | Pure `no_std` logic: config model, effect expansion, colour math, WS2812 protocol, HTTP parsing, WiFi credential validation. Only dependencies are `serde` + `serde_json`. Host-tested: 85 tests, all passing. |
-| `web/` | TypeScript + Vite UI. Builds to a single self-contained `web/dist/index.html` (16163 bytes), which the firmware embeds via `include_str!`. |
+| `led-core/` | Pure `no_std` logic: config model, effect expansion, colour math, WS2812 protocol, HTTP parsing, WiFi credential validation. Only dependencies are `serde` + `serde_json`. Host-tested: 107 tests, all passing. |
+| `web/` | TypeScript + Vite UI. Builds to a single self-contained `web/dist/index.html` (16292 bytes), which the firmware embeds via `include_str!`. |
 
 The design principle: all logic lives in host-testable `led-core`; the
 firmware is a thin hardware layer that replays what `led-core` computed. Two
@@ -62,7 +62,7 @@ input, not an ordinary build artifact.
 cargo test -p led-core --target x86_64-unknown-linux-gnu --config 'unstable.build-std=["std","test"]'
 ```
 
-Runs all 85 unit + integration tests on the host. The plain `cargo test` does
+Runs all 107 unit + integration tests on the host. The plain `cargo test` does
 NOT work — see Known issues for why, and what to type instead.
 
 ### Host lint/format gate
@@ -116,8 +116,9 @@ budget.
   `include_str!` and also the runtime default. Two shapes: `blink`
   (`colors` + `duration_ms`) and `blend` (`from`/`to`/`steps`/`step_ms`).
 - `wifi.json` — WiFi credentials, embedded into the firmware binary at compile
-  time. It must contain real credentials before any WiFi example works. This
-  is a tracked file with real security implications — see Known issues.
+  time. It must contain real credentials before any WiFi example works. It is
+  untracked and gitignored (copy `wifi.json.example` and fill in real values) —
+  but because it is compiled in, see Known issues, caveat 3.
 
 ## Known issues / caveats
 
@@ -127,19 +128,23 @@ budget.
    and cargo fails dependency resolution with no hint about the cause. If your
    first build dies during dependency resolution mentioning the `esp-radio`
    patch, this is why. `forks/esp-radio` must be present locally.
-2. **Plain `cargo test` fails hard** (69 errors, "can't find crate for `test`")
-   in BOTH the repo root and inside `led-core/`. The root
+2. **Plain `cargo test` fails hard** ("can't find crate for `test`") in BOTH the
+   repo root and inside `led-core/`. The root
    `.cargo/config.toml` forces the RISC-V firmware target and a
    `-Zbuild-std` list of `["alloc", "core"]` — the `test` crate is not in that
-   list, so test targets cannot be built for that target. You must override
-   both the target and the build-std list explicitly, as in the host-test
-   command above (or use `scripts/test-led-core.sh`).
-3. **`configs/wifi.json` is a TRACKED file.** Real credentials written into it
-   end up in git history permanently, and because the file is compiled into
-   the firmware image, anyone who dumps the board's flash can recover them.
-   A placeholder/example-file approach (committed example plus untracked real
-   file) is the intended direction. Until then, never commit real values into
-   it.
+   list, so test targets cannot be built for that target. At the root it is a
+   single error; inside `led-core/` (a `no_std` crate) the missing `test` and
+   `std` crates cascade into dozens more. You must override both the target
+   and the build-std list explicitly, as in the host-test command above
+   (or use `scripts/test-led-core.sh`).
+3. **WiFi credentials are compiled into the firmware image.** `configs/wifi.json`
+   is untracked and gitignored — copy `configs/wifi.json.example` (placeholder
+   values only) to `configs/wifi.json` and fill in real credentials. The real
+   file's contents are not in any committed tree, so a fresh clone will not
+   contain them. But the file is embedded into the firmware binary via
+   `include_str!`, so anyone who can dump the board's flash can recover the
+   credentials. Treat any board you hand to someone else as disclosing that
+   WiFi password.
 4. **Runtime config is RAM-only.** Config set via `POST /config` is LOST ON
    REBOOT — the device reverts to the compile-time `configs/effects.json`.
    Documented as a known limitation, not a bug to chase.

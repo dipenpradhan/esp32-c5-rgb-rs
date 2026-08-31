@@ -15,7 +15,7 @@ thin hardware layer that consumes this crate.
 
 Why it exists: the effects, WS2812 timing, HTTP parsing and credential
 validation are the fiddly parts of this project, and all of it is verifiable
-without hardware. 85 host tests currently pass.
+without hardware. 107 host tests currently pass.
 
 ## The two seams
 
@@ -47,7 +47,7 @@ without hardware. 85 host tests currently pass.
 cargo test -p led-core --target x86_64-unknown-linux-gnu --config 'unstable.build-std=["std","test"]'
 ```
 
-(or `bash scripts/test-led-core.sh`). 85 tests.
+(or `bash scripts/test-led-core.sh`). 107 tests.
 
 Plain `cargo test` fails in this directory too: the root
 `.cargo/config.toml` forces the RISC-V firmware target and a `-Zbuild-std`
@@ -59,11 +59,15 @@ mandatory.
 ## Caveat: not yet fully self-contained
 
 Despite the purity contract, this crate currently reaches outside its own
-directory in three places:
+directory in two places:
 
-- `src/config.rs:93` and `src/effects.rs:166`: `include_str!("../../configs/effects.json")`
+- `src/config.rs:93`: `include_str!("../../configs/effects.json")`
 - `src/wifi.rs:47`: `include_str!("../../configs/wifi.json")`
 
-That couples this crate's tests to files owned by the other package (and means
-several tests anchor to the exact contents of `configs/effects.json`). This is
-known and slated to change.
+That couples this crate's build to files owned by the other package. The
+`effects.json` coupling is narrow: the only test that reads the shipped file
+(`config.rs::tests::shipped_config_parses_and_is_valid`) asserts just that it
+parses and is non-empty, so a legitimate edit to the file's effects will not
+break it; the integration tests run against a synthetic fixture defined inline.
+The `wifi.json` include means the build fails if that (untracked) file is
+missing. Both are known and slated to change.

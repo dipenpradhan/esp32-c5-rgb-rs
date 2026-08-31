@@ -17,7 +17,7 @@ These scripts cover `led-core` only.
 
 ## test-led-core.sh
 
-Runs the `led-core` unit + integration tests on the host (85 tests):
+Runs the `led-core` unit + integration tests on the host (107 tests):
 
 ```bash
 cargo test --manifest-path led-core/Cargo.toml --target x86_64-unknown-linux-gnu --config 'unstable.build-std=["std"]'

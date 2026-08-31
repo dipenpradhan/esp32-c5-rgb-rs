@@ -42,7 +42,12 @@ placeholder template (`wifi.json.example`) is committed.
 ### Warning: credentials are compiled into the firmware image
 
 Because this file is embedded via `include_str!`, anyone who dumps the
-board's flash can recover them. That is why `wifi.json` is gitignored —
-and why any credentials that have already been committed to the repo
-should be treated as compromised (rotate the WiFi password if that
-applies to you).
+board's flash can recover the credentials. That is the permanent risk and the
+reason to treat any board you hand to someone else as disclosing that WiFi
+password.
+
+The real `wifi.json` is not tracked and is absent from the current git history
+(the placeholder template `wifi.json.example` is the only committed form).
+Earlier versions of this repo did commit the real file, so if you or a
+collaborator have an older clone or remote that still contains it, treat that
+password as compromised and rotate it.
