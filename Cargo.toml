@@ -1,5 +1,5 @@
 [package]
-name = "esp-c5-hello"
+name = "esp32-c5-rgb-rs"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"

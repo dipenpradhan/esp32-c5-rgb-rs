@@ -1,4 +1,4 @@
-# ESP32-C5 RGB LED (esp-c5-hello)
+# ESP32-C5 RGB LED (esp32-c5-rgb-rs)
 
 Firmware for the ESP32-C5-DevKitC-1 that drives the on-board WS2812 RGB LED
 (GPIO27, GRB order) with JSON-configured effects and runs a WiFi HTTP server
@@ -25,7 +25,7 @@ This is NOT a cargo workspace — two independent packages, each with its own
 
 | Directory | What it is |
 |---|---|
-| `.` (root, `esp-c5-hello`) | The firmware. `no_std`, target `riscv32imac-unknown-none-elf`. `src/main.rs` (the default binary) plus 9 binaries in `examples/`. |
+| `.` (root, `esp32-c5-rgb-rs`) | The firmware. `no_std`, target `riscv32imac-unknown-none-elf`. `src/main.rs` (the default binary) plus 9 binaries in `examples/`. |
 | `led-core/` | Pure `no_std` logic: config model, effect expansion, colour math, WS2812 protocol, HTTP parsing, WiFi credential validation. Only dependencies are `serde` + `serde_json`. Host-tested: 85 tests, all passing. |
 | `web/` | TypeScript + Vite UI. Builds to a single self-contained `web/dist/index.html` (16163 bytes), which the firmware embeds via `include_str!`. |
 
@@ -153,7 +153,7 @@ budget.
 
 ```
 .
-├── Cargo.toml          # esp-c5-hello firmware package; [patch.*] entries
+├── Cargo.toml          # esp32-c5-rgb-rs firmware package; [patch.*] entries
 ├── .cargo/config.toml  # RISC-V target, espflash runner, -Zbuild-std
 ├── rust-toolchain.toml # nightly + rust-src
 ├── src/main.rs         # default binary: sync config-driven LED effects

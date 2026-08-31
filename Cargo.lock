@@ -733,28 +733,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "esp-c5-hello"
-version = "0.1.0"
-dependencies = [
- "embassy-executor",
- "embassy-net",
- "embassy-time",
- "embedded-io-async 0.7.0",
- "esp-alloc",
- "esp-backtrace",
- "esp-bootloader-esp-idf",
- "esp-hal",
- "esp-println",
- "esp-radio",
- "esp-rtos",
- "led-core",
- "reqwless",
- "serde",
- "serde_json",
- "static_cell",
-]
-
-[[package]]
 name = "esp-config"
 version = "0.7.0"
 source = "git+https://github.com/esp-rs/esp-hal#545763c13502aaad9206f28a847ea9cc58880bcc"
@@ -1073,6 +1051,28 @@ version = "0.40.2"
 source = "git+https://github.com/esp-rs/esp-pacs?rev=f68e014#f68e014be1a645941e1e21356594105f5c75ae3c"
 dependencies = [
  "vcell",
+]
+
+[[package]]
+name = "esp32-c5-rgb-rs"
+version = "0.1.0"
+dependencies = [
+ "embassy-executor",
+ "embassy-net",
+ "embassy-time",
+ "embedded-io-async 0.7.0",
+ "esp-alloc",
+ "esp-backtrace",
+ "esp-bootloader-esp-idf",
+ "esp-hal",
+ "esp-println",
+ "esp-radio",
+ "esp-rtos",
+ "led-core",
+ "reqwless",
+ "serde",
+ "serde_json",
+ "static_cell",
 ]
 
 [[package]]

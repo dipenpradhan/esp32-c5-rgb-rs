@@ -8,7 +8,7 @@
 # build the full host std from source (["std"]) so the from-source core/alloc
 # and prebuilt std agree.
 #
-# Scope: led-core only. The root `esp-c5-hello` package depends on esp-hal,
+# Scope: led-core only. The root `esp32-c5-rgb-rs` package depends on esp-hal,
 # whose build script refuses to build for any target other than the chip's,
 # so the firmware crate itself cannot be checked on the host.
 set -euo pipefail
