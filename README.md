@@ -173,13 +173,25 @@ budget.
 
 ## License
 
-Apache-2.0 — see `LICENSE`. Both `Cargo.toml` manifests declare
-`license = "Apache-2.0"`.
+Copyright 2026 Dipen Pradhan
 
-The declaration covers this project's own source only.
-`thirdparty/esp-wifi-sys-esp32c5/` ships ~17 MB of prebuilt Espressif binary
-blobs with no LICENSE, COPYING, or NOTICE file anywhere in that directory
-(see Known issues, caveat 5): their licence is unrecorded and must be
-established before this repo is redistributed. `forks/esp-radio` is a fork
-of esp-hal, which is dual-licensed Apache-2.0/MIT upstream; it is gitignored
-and not distributed with the repo (caveat 1).
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+SPDX-License-Identifier: `Apache-2.0`. The full text is in [`LICENSE`](LICENSE).
+
+### Third-party licenses
+
+This repository vendors third-party components under `thirdparty/`,
+which are governed by their own licences. The complete inventory,
+including each component's origin and licence, is in
+[THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
