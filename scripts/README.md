@@ -15,6 +15,16 @@ Also note: the firmware package itself cannot be checked on the host —
 esp-hal's build script refuses to build for any target other than the chip's.
 These scripts cover `led-core` only.
 
+## build.sh (repo root)
+
+The one-command build entrypoint: `./build.sh` (run from anywhere). It checks
+the toolchain prerequisites (cargo, a nightly toolchain, the `rust-src`
+component; `espflash` is only needed to flash, so it warns), seeds
+`configs/wifi.json` from the tracked example **only if it is absent** (it never
+overwrites an existing file), builds the firmware for the target configured in
+`.cargo/config.toml`, and prints the artifact path plus the next steps
+(including how to run the host tests and lint gate above, and how to flash).
+
 ## test-led-core.sh
 
 Runs the `led-core` unit + integration tests on the host (107 tests):
