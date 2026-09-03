@@ -32,9 +32,9 @@ webserver = [
 ]
 
 [dependencies]
-esp-hal = { git = "https://github.com/esp-rs/esp-hal", features = ["esp32c5", "unstable"] }
-esp-bootloader-esp-idf = { git = "https://github.com/esp-rs/esp-hal", features = ["esp32c5"] }
-esp-alloc = { git = "https://github.com/esp-rs/esp-hal", features = ["esp32c5"] }
+esp-hal = { git = "https://github.com/esp-rs/esp-hal", rev = "545763c13502aaad9206f28a847ea9cc58880bcc", features = ["esp32c5", "unstable"] }
+esp-bootloader-esp-idf = { git = "https://github.com/esp-rs/esp-hal", rev = "545763c13502aaad9206f28a847ea9cc58880bcc", features = ["esp32c5"] }
+esp-alloc = { git = "https://github.com/esp-rs/esp-hal", rev = "545763c13502aaad9206f28a847ea9cc58880bcc", features = ["esp32c5"] }
 serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
 serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
 static_cell = "2.1"
@@ -47,20 +47,17 @@ led-core = { path = "led-core" }
 embassy-executor = { version = "0.10", optional = true }
 
 # Web server stack (enabled with --features webserver)
-esp-radio = { git = "https://github.com/esp-rs/esp-hal", features = ["esp32c5", "wifi", "log-04", "print-logs-from-driver", "unstable"], optional = true }
-esp-rtos = { git = "https://github.com/esp-rs/esp-hal", features = ["esp32c5", "esp-radio", "esp-alloc", "embassy"], optional = true }
+esp-radio = { git = "https://github.com/esp-rs/esp-hal", rev = "545763c13502aaad9206f28a847ea9cc58880bcc", features = ["esp32c5", "wifi", "log-04", "print-logs-from-driver", "unstable"], optional = true }
+esp-rtos = { git = "https://github.com/esp-rs/esp-hal", rev = "545763c13502aaad9206f28a847ea9cc58880bcc", features = ["esp32c5", "esp-radio", "esp-alloc", "embassy"], optional = true }
 embassy-net = { version = "0.9", features = ["tcp", "udp", "dhcpv4", "medium-ethernet", "dns"], optional = true }
 embassy-time = { version = "0.5", features = ["tick-hz-1_000_000"], optional = true }
 embedded-io-async = { version = "0.7", optional = true }
-esp-println = { git = "https://github.com/esp-rs/esp-hal", default-features = false, features = ["esp32c5", "log-04", "jtag-serial", "critical-section"] }
-esp-backtrace = { git = "https://github.com/esp-rs/esp-hal", features = ["esp32c5", "panic-handler", "println"] }
+esp-println = { git = "https://github.com/esp-rs/esp-hal", rev = "545763c13502aaad9206f28a847ea9cc58880bcc", default-features = false, features = ["esp32c5", "log-04", "jtag-serial", "critical-section"] }
+esp-backtrace = { git = "https://github.com/esp-rs/esp-hal", rev = "545763c13502aaad9206f28a847ea9cc58880bcc", features = ["esp32c5", "panic-handler", "println"] }
 reqwless = { version = "0.14", default-features = false, optional = true }
 
 [patch.crates-io]
 esp-wifi-sys-esp32c5 = { path = "thirdparty/esp-wifi-sys-esp32c5" }
-
-[patch."https://github.com/esp-rs/esp-hal"]
-esp-radio = { path = "forks/esp-radio" }
 
 [profile.dev]
 debug = true
