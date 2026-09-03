@@ -148,8 +148,8 @@ impl<const N: usize> StaticBuf<N> {
 // executor and the bytes are written *before* the version is bumped, a reader
 // sees either the fully-old or fully-new buffer, never a torn mix.
 const CONFIG_MAX: usize = 4096;
-/// Size of each `read()` chunk in `handle_client` (512 bytes: matches the
-/// 512-byte `RX_BUF`, so one chunk always fits the socket's receive buffer).
+/// Size of each `read()` chunk in `handle_client` (512 bytes: smaller than the
+/// 1024-byte `RX_BUF`, so one chunk always fits the socket's receive buffer).
 const READ_CHUNK_BYTES: usize = 512;
 static CONFIG_DATA: StaticBuf<CONFIG_MAX> = StaticBuf::new();
 static CONFIG_LEN: AtomicUsize = AtomicUsize::new(0);
@@ -220,9 +220,11 @@ const RMT_SCLK_MHZ: u32 = 80;
 /// register, on the ESP32-C5 where `1` means "no division" (full 80 MHz) — NOT
 /// the default `0`, which is the register's special "divide by 256" value.
 /// `TxChannelConfig::default()` sets `clk_divider = 0`, so relying on the
-/// default would make each tick 3.2 µs (240x too wide) and push every
-/// WS2812 phase far outside its ±150 ns datasheet window — the LED would
-/// stay garbled from code that compiles perfectly. Pass `1` EXPLICITLY.
+/// default would divide the 80 MHz counter by 256: 1 / (80 MHz / 256) =
+/// 3200 ns = 3.2 µs per tick, i.e. 3200 ns / 12.5 ns = **256x** too wide.
+/// That pushes every WS2812 phase (400/850/800/450 ns) far outside its ±150 ns
+/// datasheet window — the LED would stay garbled from code that compiles
+/// perfectly. Pass `1` EXPLICITLY.
 const CHANNEL_CLK_DIVIDER: u8 = 1;
 
 /// Nanoseconds per second (for the ns→tick conversion).
@@ -393,9 +395,12 @@ fn injected_index_html() -> Vec<u8> {
 /// `X-Config-Token: <CONFIG_TOKEN>` (a `led-core` header-lookup helper does not
 /// exist, and `led-core` is owned elsewhere — so the lookup is local here).
 ///
-/// The comparison is case-sensitive on the header *name* (the UI we inject
-/// sends the exact name) and exact on the value. Comparing one header's value
-/// against the constant is sufficient for auth: the value itself is the secret.
+/// The header *name* is matched case-insensitively (HTTP header field names are
+/// case-insensitive by spec, RFC 9110 §5.1), but the *value* is matched exactly
+/// (case-sensitively) against [`CONFIG_TOKEN`]. Both the spaced form
+/// `Name: value` and the no-space form `Name:value` are accepted, and trailing
+/// whitespace after the value is tolerated. Comparing one header's value against
+/// the constant is sufficient for auth: the value itself is the secret.
 fn config_token_provided(req_buf: &[u8]) -> bool {
     // Only the header block matters (before the "\r\n\r\n" terminator).
     let header_end = match http::find_header_end(req_buf) {
@@ -403,14 +408,24 @@ fn config_token_provided(req_buf: &[u8]) -> bool {
         None => return false,
     };
     let head = core::str::from_utf8(&req_buf[..header_end]).unwrap_or("");
-    let needle = format!("{}: {}", CONFIG_TOKEN_HEADER, CONFIG_TOKEN);
+    // Split each header line once on ':' so the NAME and the VALUE are compared
+    // separately instead of as one whole line. The previous whole-line
+    // `eq_ignore_ascii_case` compare made the TOKEN VALUE case-insensitive too,
+    // so a peer guessing the token did not need to match its case — the value
+    // is the secret and must be matched byte-for-byte. Splitting is also
+    // allocation-free (no `format!` needle), and it accepts both the "Name:
+    // value" and "Name:value" forms at once.
     head.lines().any(|line| {
-        let l = line.trim_end();
-        l.eq_ignore_ascii_case(&needle)
-            // Some clients send no space after the colon: "Name:value".
-            || l.eq_ignore_ascii_case(
-                format!("{}{}", CONFIG_TOKEN_HEADER, CONFIG_TOKEN).as_str(),
-            )
+        let (name, value) = match line.split_once(':') {
+            Some((n, v)) => (n, v),
+            None => return false,
+        };
+        // Name: case-insensitive (HTTP names are case-insensitive).
+        // Value: EXACT — a case-insensitive match would accept a
+        // different-case rendering of the token and let a guesser authenticate
+        // without matching its real case.
+        name.trim().eq_ignore_ascii_case(CONFIG_TOKEN_HEADER)
+            && value.trim() == CONFIG_TOKEN
     })
 }
 

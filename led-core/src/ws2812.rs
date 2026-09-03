@@ -9,14 +9,22 @@
 //! timing constants [`T0H_NS`], [`T0L_NS`], [`T1H_NS`], [`T1L_NS`],
 //! [`RESET_NS`].**
 //!
-//! The protocol is timing-critical and is driven on hardware by GPIO
-//! bit-banging. To make the *encoding* logic testable on the host, we model
-//! it as a stream of timed [`Ws2812Event`]s: each event sets the pin to a
-//! level and holds it for `us` microseconds. The hardware layer replays the
-//! events with [`replay_frame`] — the exact GPIO sequence the firmware
-//! performs, so what is tested here is what runs on the device.
+//! The protocol is timing-critical. The encoding is modelled here as a stream
+//! of timed events so it can be unit-tested on the host; the SHIPPED firmware
+//! does not bit-bang it — it drives the LEDs through the ESP32-C5 **RMT**
+//! peripheral (see `src/main.rs` and `examples/web_server.rs`), which emits
+//! both phases of every bit in hardware at 12.5 ns tick resolution. The two
+//! host replays ([`replay_frame`] / [`replay_frame_v2`]) and the `PinPulse`/
+//! `PinPulseNs` traits are test harnesses only — no firmware code calls them.
+//! What the host tests actually cover: they record the encoded phase widths
+//! and check them against the datasheet invariants (both phases present and
+//! in-window, a measurable LOW between `1` bits, a spec-length reset). They
+//! verify the *encoding*, not the hardware: they do not replay the RMT
+//! counter or the on-device GPIO timing, so they prove the waveform the
+//! firmware *would* emit, not that the device emits it.
 //!
-//! Protocol (as implemented by the shipped bit-banged driver):
+//! Protocol, legacy (non-compliant) timing model — the items in the first half
+//! of this module:
 //!
 //! - One bit is **1 µs total**:
 //!   - logic `1` → HIGH for 1 µs (then LOW, no delay),
@@ -25,6 +33,12 @@
 //! - One pixel = 24 bits in **GRB** order (Green, Red, Blue) = 24 µs.
 //! - Frame reset = LOW ≥ 50 µs after the last bit.
 //! - Full frame = 24 + 50 = **74 µs** of blocking pin activity.
+//!
+//! Protocol, compliant (V2) timing model — the one the shipped RMT firmware
+//! emits (see the constants below): both phases of every bit are timed in ns
+//! (T0H 400 / T0L 850, T1H 800 / T1L 450 ns; 1250 ns per bit), one byte = 8
+//! bits MSB first, one pixel = 24 bits in **GRB** order, and the reset is a
+//! LOW pulse of [`RESET_NS`] (300 µs, ≥ the WS2812B t_RST of 280 µs).
 //!
 //! Colors in this crate are `[R, G, B]` (the config/UI order). Conversion to
 //! the GRB wire order happens in [`encode_rgb`].
@@ -139,8 +153,10 @@ pub fn encode_rgb(rgb: &[u8; 3]) -> Ws2812Frame {
     encode_grb(rgb[1], rgb[0], rgb[2])
 }
 
-/// A pin + delay the frame can be replayed onto. The firmware implements this
-/// for `(esp_hal Output, esp_hal Delay)`; tests implement it with a recorder.
+/// A pin + delay the frame can be replayed onto. This is a test seam only —
+/// the host tests implement it with a recorder (see the `Recorder` below); the
+/// shipped firmware drives the LEDs via the RMT peripheral and does NOT
+/// implement this trait.
 ///
 /// **LEGACY / NON-COMPLIANT**: `delay_us` has only µs granularity, so the
 /// sub-microsecond phases of the real protocol (T0H = 400 ns) cannot be
@@ -151,8 +167,9 @@ pub trait PinPulse {
     fn delay_us(&mut self, us: u32);
 }
 
-/// Replay a frame onto a pin — exactly the GPIO sequence the firmware driver
-/// performs:
+/// Replay a frame onto a pin — this is the *legacy* bit-bang sequence, driven
+/// only by the host tests (recorder probe). The shipped firmware does NOT run
+/// this sequence; it emits the compliant V2 waveform via the RMT peripheral.
 ///
 /// ```text
 /// for each bit event e:

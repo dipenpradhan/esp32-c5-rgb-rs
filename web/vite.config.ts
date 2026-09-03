@@ -7,15 +7,21 @@ import { readFileSync } from "node:fs";
 //
 //   dist/index.html  +  injected CONFIG_TOKEN script  +  HTTP header
 //
-// and must deliver the whole thing over its TCP socket. If the total exceeds
-// the firmware's TX buffer, the page is silently truncated on the wire — the
-// 2026-08 regression: page 16292 + script 72 + header 86 = 16450 bytes needed
-// vs a 16384-byte TX buffer, so the last 66 bytes (end of the token script,
-// `</head>`, `<body>`, and `<div id="app">`, the element the UI's JS mounts
-// on) were dropped → HTTP 200 + BLANK PAGE. The old guard checked only the
-// raw file (16292) against 16384 and reported OK — it validated the artifact
-// on disk, not what actually goes on the wire. This guard validates the
-// SERVED size instead.
+// and must deliver the whole thing over its TCP socket. An undersized TX
+// buffer silently truncated the page on the wire up to the 2026-08 fix — that
+// regression: page 16292 + script 72 + header 86 = 16450 bytes needed vs a
+// 16384-byte buffer, so the last 66 bytes (end of the token script, `</head>`,
+// `<body>`, and `<div id="app">`, the element the UI's JS mounts on) were
+// dropped → HTTP 200 + BLANK PAGE, because the write's return value was
+// discarded. The guard back then also checked only the raw file (16292)
+// against 16384 and reported OK — it validated the artifact on disk, not what
+// actually goes on the wire. This guard validates the SERVED size instead.
+//
+// Since `send_response`/`write_all` now loop on partial writes (2026-08 fix),
+// an undersized buffer no longer loses bytes: the page is still delivered in
+// full, just across multiple write round-trips (a performance penalty, not
+// data loss). The guard's job is now to keep the SERVED size within the TX
+// buffer so the response is served efficiently rather than in many chunks.
 //
 // Every number below is named and traced to its origin:
 
@@ -71,7 +77,9 @@ export default defineConfig({
           console.error(
             `size-budget: FAIL served page would be ${servedBytes} bytes ` +
               `(file ${pageSize} + token script ${TOKEN_SCRIPT_BYTES} + header ${headerBytes}) ` +
-              `> firmware TX buffer ${FIRMWARE_TX_BUF} — page would truncate on the wire`,
+              `> firmware TX buffer ${FIRMWARE_TX_BUF} — page would be sent in multiple ` +
+              `write round-trips (no bytes lost, but undersized buffer: grow the ` +
+              `firmware TX_BUF or shrink the page)`,
           );
           process.exit(1);
         }
