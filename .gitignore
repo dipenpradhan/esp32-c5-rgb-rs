@@ -56,8 +56,8 @@ web/node_modules/
 watchdog.log
 watchdog.sh
 .watchdog_state
-# Local forks (separate git repos; pushed to GitHub independently)
-# Build needs forks/esp-radio present locally via [patch."https://github.com/esp-rs/esp-hal"]
+# Local scratch clones of upstream crates (separate git repos). The build does
+# not use them; they are ignored because they are large and local-only.
 forks/
 # WiFi credentials (real values live in configs/wifi.json and are compiled into
 # the firmware — never commit; copy configs/wifi.json.example and fill it in)

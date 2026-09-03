@@ -56,6 +56,21 @@ input, not an ordinary build artifact.
 
 ## Commands
 
+### Quick start
+
+```bash
+./build.sh
+```
+
+Builds the firmware from a fresh clone. It checks the toolchain, then builds;
+it prints the artifact path when done. If `configs/wifi.json` is missing it
+seeds the file from `configs/wifi.json.example`, which contains placeholder
+values — put your real WiFi credentials in `configs/wifi.json` before flashing
+anything that uses WiFi. Flashing is a separate manual step (below) and needs
+`espflash`; `build.sh` warns if it is absent but does not install it. The
+manual steps that follow are what `build.sh` wraps, for when you want to run
+them individually.
+
 ### Host tests for led-core
 
 ```bash
@@ -118,17 +133,11 @@ budget.
 - `wifi.json` — WiFi credentials, embedded into the firmware binary at compile
   time. It must contain real credentials before any WiFi example works. It is
   untracked and gitignored (copy `wifi.json.example` and fill in real values) —
-  but because it is compiled in, see Known issues, caveat 3.
+  but because it is compiled in, see Known issues, caveat 2.
 
 ## Known issues / caveats
 
-1. **A fresh clone CANNOT build.** `Cargo.toml` contains
-   `[patch."https://github.com/esp-rs/esp-hal"] esp-radio = { path = "forks/esp-radio" }`,
-   but `forks/` is gitignored — so in a clone the patch target does not exist,
-   and cargo fails dependency resolution with no hint about the cause. If your
-   first build dies during dependency resolution mentioning the `esp-radio`
-   patch, this is why. `forks/esp-radio` must be present locally.
-2. **Plain `cargo test` fails hard** ("can't find crate for `test`") in BOTH the
+1. **Plain `cargo test` fails hard** ("can't find crate for `test`") in BOTH the
    repo root and inside `led-core/`. The root
    `.cargo/config.toml` forces the RISC-V firmware target and a
    `-Zbuild-std` list of `["alloc", "core"]` — the `test` crate is not in that
@@ -137,7 +146,7 @@ budget.
    `std` crates cascade into dozens more. You must override both the target
    and the build-std list explicitly, as in the host-test command above
    (or use `scripts/test-led-core.sh`).
-3. **WiFi credentials are compiled into the firmware image.** `configs/wifi.json`
+2. **WiFi credentials are compiled into the firmware image.** `configs/wifi.json`
    is untracked and gitignored — copy `configs/wifi.json.example` (placeholder
    values only) to `configs/wifi.json` and fill in real credentials. The real
    file's contents are not in any committed tree, so a fresh clone will not
@@ -145,14 +154,16 @@ budget.
    `include_str!`, so anyone who can dump the board's flash can recover the
    credentials. Treat any board you hand to someone else as disclosing that
    WiFi password.
-4. **Runtime config is RAM-only.** Config set via `POST /config` is LOST ON
+3. **Runtime config is RAM-only.** Config set via `POST /config` is LOST ON
    REBOOT — the device reverts to the compile-time `configs/effects.json`.
    Documented as a known limitation, not a bug to chase.
-5. **Prebuilt binary blobs.** `thirdparty/esp-wifi-sys-esp32c5` contains
-   ~17 MB of prebuilt Espressif binary blobs with no recorded provenance; the
-   build depends on them via a `[patch.crates-io]` entry.
-6. **esp-hal comes from git `main`.** esp-hal and friends are pinned only by
-   `Cargo.lock` — running `cargo update` may break the build.
+4. **Prebuilt binary blobs.** `thirdparty/esp-wifi-sys-esp32c5` contains
+   ~17 MB of prebuilt Espressif binary blobs; the build depends on them via a
+   `[patch.crates-io]` entry. Origin and licence are recorded in
+   [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
+5. **esp-hal is pinned by git revision.** esp-hal and its companion crates
+   resolve from a pinned upstream revision (see `Cargo.toml`), not a branch
+   head, and are additionally pinned by `Cargo.lock`.
 
 ## Repository layout
 
@@ -167,9 +178,11 @@ budget.
 ├── web/                # TS + Vite UI -> dist/index.html — see web/README.md
 ├── configs/            # effects.json, wifi.json — see configs/README.md
 ├── scripts/            # host test/lint scripts — see scripts/README.md
-├── forks/              # local esp-radio fork; GITIGNORED — see caveat 1
-└── thirdparty/         # esp-wifi-sys-esp32c5 prebuilt blobs — see caveat 5
+└── thirdparty/         # esp-wifi-sys-esp32c5 prebuilt blobs — see caveat 4
 ```
+
+`forks/` is also present in a working tree but gitignored: local scratch
+clones of upstream crates, not part of the buildable project.
 
 ## License
 
