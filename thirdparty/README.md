@@ -36,11 +36,6 @@ Recorded and established in `THIRD_PARTY_LICENSES.md`. Precisely:
   `fdf0095b1c` — the state immediately after the upstream "Update v5.5.3 (#498)"
   commit — and correspond to **ESP-IDF v5.5.3**.
 
-Note: the upstream byte-match is the claim recorded in
-`THIRD_PARTY_LICENSES.md`. The local `forks/esp-wifi-sys` checkout (used for the
-provenance investigation) is at a *different* upstream commit, so it is not
-itself the source of the shipped blobs.
-
 ## Licence
 
 Apache-2.0, Copyright Espressif Systems — the same licence as ESP-IDF, per
@@ -74,24 +69,3 @@ source, so the firmware must link prebuilt `.a` files. The consumption path:
    `.cargo/config.toml` contributes only `-C link-arg=-Tlinkall.x` (a linker
    script flag that forces inclusion of all archive members); it adds no
    search paths.
-
-## History note: the removed `ftm_stubs.c`
-
-An earlier revision of this crate shipped a local stub archive: `ftm_stubs.c`
-compiled to `libftm_stubs.a`, copied and linked by `build.rs` as
-`static=ftm_stubs`. It has been **removed** because the shipped blobs need no
-stub:
-
-- The 36 `est_PHY_*_FTM_COMP_*` no-ops targeted a *newer* `libnet80211.a`
-  (fork commit `e7ca27c`) that this repo does not ship. Nothing in the shipped
-  blob set references any `est_PHY` symbol, so the stubs were never extracted
-  by the linker and never made it into the final ELF.
-- With the shipped blobs and no stub at all, the firmware links cleanly with
-  zero undefined symbols.
-- Two of the stubs were **no-op overrides of real supplicant functions** —
-  `esp_wifi_skip_supp_pmkcaching` and `esp_wifi_sta_get_rsnxe` — which the
-  shipped `libnet80211.a` genuinely implements and which
-  `libwpa_supplicant.a` references. `libnet80211.a` wins the link in the
-  shipped build (confirmed by disassembly), so nothing shipped was broken —
-  but a competing no-op definition of a real function is a footgun and
-  carried a latent WPA3/RSNXE degradation risk.
