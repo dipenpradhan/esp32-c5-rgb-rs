@@ -1,9 +1,8 @@
 # thirdparty
 
 A single vendored crate — `esp-wifi-sys-esp32c5/` — that carries the prebuilt
-Espressif WiFi/PHY binary blobs the ESP32-C5 firmware links against, plus the
-one stub archive this repo builds itself. Nothing else under `thirdparty/` is a
-source dependency.
+Espressif WiFi/PHY binary blobs the ESP32-C5 firmware links against. Nothing
+else under `thirdparty/` is a source dependency.
 
 ## What is in here
 
@@ -14,34 +13,28 @@ source dependency.
 - `build.rs` — the link wiring; see below.
 - `Cargo.toml` — declares `license = "MIT OR Apache-2.0"` (that licence covers
   the **Rust bindings**, not the binary blobs).
-- `ftm_stubs.c` — C source for the local stub archive (below).
 - `libs/` — the binary blobs:
   - **14 Espressif prebuilt `.a` archives** (WiFi/PHY and the Bluetooth
     libraries it needs): `libble_app`, `libbtbb`, `libcoexist`, `libcore`,
     `libespnow`, `libmesh`, `libnet80211`, `libphy`, `libpp`, `libprintf`,
     `libregulatory`, `libsmartconfig`, `libwapi`, `libwpa_supplicant`.
-  - **`libftm_stubs.a`** — the one archive this repo builds locally from
-    `ftm_stubs.c`; it is **not** an Espressif binary.
   - A set of `.o` object files (`ieee80211_*.o`, `wl_*.o`, `test*.o`,
-    `if_eagle.o`, `ftm_stubs.o`) that are **intermediates**: they are
+    `if_eagle.o`) that are **intermediates**: they are
     gitignored (`*.o` in the crate's own `.gitignore`), not tracked, and not
     referenced by `build.rs`. They may exist in a local working tree but are
     not distributed.
 
-So the count: **15 `.a` archives** are present in `libs/`, of which **14 are
-Espressif's and 1 (`libftm_stubs.a`) is local**. All 15 `.a` archives (and the
-crate source) are the only things tracked in git here.
+So the count: **14 `.a` archives**, all Espressif prebuilt binaries. All 14
+`.a` archives (and the crate source) are the only things tracked in git here.
 
 ## Provenance
 
 Recorded and established in `THIRD_PARTY_LICENSES.md`. Precisely:
 
-- **14 of the 15** archives in `libs/` are a byte-for-byte snapshot of
+- All **14** archives in `libs/` are a byte-for-byte snapshot of
   [esp-rs/esp-wifi-sys](https://github.com/esp-rs/esp-wifi-sys) at commit
   `fdf0095b1c` — the state immediately after the upstream "Update v5.5.3 (#498)"
   commit — and correspond to **ESP-IDF v5.5.3**.
-- **`libftm_stubs.a` is the exception**: it is a local stub compiled from
-  `ftm_stubs.c` (with a RISC-V cross-compiler) and is not an Espressif binary.
 
 Note: the upstream byte-match is the claim recorded in
 `THIRD_PARTY_LICENSES.md`. The local `forks/esp-wifi-sys` checkout (used for the
@@ -75,26 +68,30 @@ source, so the firmware must link prebuilt `.a` files. The consumption path:
    WiFi and web-server examples) does.
 3. **`build.rs`** does the actual linking. For each of the 14 Espressif
    archives it copies `libs/lib<name>.a` into the crate's `OUT_DIR` and emits
-   `cargo:rustc-link-lib=<name>`; it copies `libftm_stubs.a` and emits
-   `cargo:rustc-link-lib=static=ftm_stubs`; then it emits a single
+   `cargo:rustc-link-lib=<name>`; then it emits a single
    `cargo:rustc-link-search=<OUT_DIR>`. That emitted search path plus the
    per-library link directives are the entire link/search-path wiring. The root
    `.cargo/config.toml` contributes only `-C link-arg=-Tlinkall.x` (a linker
    script flag that forces inclusion of all archive members); it adds no
    search paths.
 
-## `ftm_stubs.c` — what it is for
+## History note: the removed `ftm_stubs.c`
 
-`ftm_stubs.c` defines empty stub functions for **FTM (Fine Timing
-Measurement)**, a WiFi 6 feature not needed for basic WiFi-STA operation. The
-newer `libnet80211.a` blob references FTM symbols (and two WPA-supplicant
-symbols, `esp_wifi_skip_supp_pmkcaching` and `esp_wifi_sta_get_rsnxe`) that a
-matching Espressif build would provide; these no-op stubs satisfy those linker
-references so the firmware links. It is compiled to `libftm_stubs.a`, which is
-the 15th archive and the one that is built locally rather than taken from
-Espressif.
+An earlier revision of this crate shipped a local stub archive: `ftm_stubs.c`
+compiled to `libftm_stubs.a`, copied and linked by `build.rs` as
+`static=ftm_stubs`. It has been **removed** because the shipped blobs need no
+stub:
 
-There is **no in-repo build rule** that regenerates `libftm_stubs.a` from
-`ftm_stubs.c` (no Makefile or script does it, and `build.rs` only copies the
-already-built `.a`). How to rebuild it if the stubs ever change is not
-documented in this repo — not verified.
+- The 36 `est_PHY_*_FTM_COMP_*` no-ops targeted a *newer* `libnet80211.a`
+  (fork commit `e7ca27c`) that this repo does not ship. Nothing in the shipped
+  blob set references any `est_PHY` symbol, so the stubs were never extracted
+  by the linker and never made it into the final ELF.
+- With the shipped blobs and no stub at all, the firmware links cleanly with
+  zero undefined symbols.
+- Two of the stubs were **no-op overrides of real supplicant functions** —
+  `esp_wifi_skip_supp_pmkcaching` and `esp_wifi_sta_get_rsnxe` — which the
+  shipped `libnet80211.a` genuinely implements and which
+  `libwpa_supplicant.a` references. `libnet80211.a` wins the link in the
+  shipped build (confirmed by disassembly), so nothing shipped was broken —
+  but a competing no-op definition of a real function is a footgun and
+  carried a latent WPA3/RSNXE degradation risk.

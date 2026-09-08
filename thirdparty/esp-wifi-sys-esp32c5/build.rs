@@ -30,11 +30,5 @@ fn main() {
         println!("cargo:rustc-link-lib={lib}");
     }
 
-    // Copy FTM stubs (satisfies linker references from newer libnet80211.a)
-    // FTM (Fine Timing Measurement) is a WiFi 6 feature not needed for basic WiFi STA
-    std::fs::copy("libs/libftm_stubs.a", out.join("libftm_stubs.a"))
-        .unwrap_or_else(|e| panic!("Failed to copy libftm_stubs.a: {e}"));
-    println!("cargo:rustc-link-lib=static=ftm_stubs");
-
     println!("cargo:rustc-link-search={}", out.display());
 }
