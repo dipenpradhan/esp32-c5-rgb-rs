@@ -33,9 +33,11 @@ The design principle: all logic lives in host-testable `led-core`; the
 firmware is a thin hardware layer that replays what `led-core` computed. Two
 seams make that possible:
 
-- the `PinPulse` trait (`led_core::ws2812`) — the firmware supplies real GPIO,
-  tests supply a recorder, so the tested GPIO sequence is exactly the shipped
-  one; and
+- the WS2812 driver seam — `led-core` computes the nanosecond phase widths of
+  every bit (`encode_rgb_v2`), and the firmware maps them into RMT ticks and
+  emits the waveform through the RMT hardware peripheral (not GPIO
+  bit-banging). The encoder is host-tested against the WS2812 datasheet
+  timing windows; and
 - the I/O-free `http` module — tests replay split TCP reads through the real
   parser.
 
