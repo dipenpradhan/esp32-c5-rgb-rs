@@ -156,15 +156,16 @@ if cargo build; then
   fi
 else
   rc=$?
-  die "Firmware build FAILED (exit ${rc}). See the cargo output above.
-  If the failure happens during dependency resolution and references the
-  'esp-radio' patch / the local 'forks/esp-radio' path (e.g. a missing patch
-  target, or an 'esp-rom-sys' links conflict) — that is a known, separate
-  issue being fixed by a different change (Cargo.toml patches esp-radio
-  against the gitignored forks/ directory). It is OUT OF SCOPE for this
-  script; do NOT edit Cargo.toml to 'fix' it here. Everything this script is
-  responsible for (toolchain checks, wifi.json seeding) has already completed
-  successfully above."
+  die "Firmware build FAILED (exit ${rc}). Everything this script is responsible for
+  (toolchain checks, wifi.json seeding) has already completed successfully above,
+  so the failure is inside cargo itself — read the cargo output above; its last
+  lines name the failing crate and the error. Most likely causes:
+   - No (or blocked) network access: the build fetches the pinned esp-hal git
+     dependencies (rev 545763c, see Cargo.toml), and cargo needs git access.
+   - A stale target/ or a corrupt cargo cache. Safe to try: cargo clean
+     (removes target/) and re-run.
+   - A missing rust-src component: only possible if the check above could not
+     verify it (it only warns when rustup is absent) — rustup component add rust-src."
 fi
 
 # ── 4. next steps ────────────────────────────────────────────────────────────
