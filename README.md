@@ -89,7 +89,9 @@ NOT work — see Known issues for why, and what to type instead.
 bash scripts/check-host.sh
 ```
 
-Clippy + `cargo fmt --check` for both packages.
+Clippy checks `led-core` only, and `cargo fmt --check` runs for both packages.
+The firmware crate itself cannot be checked on the host — esp-hal's build
+script refuses to build for any target other than the chip's.
 
 ### Firmware build
 
