@@ -49,7 +49,8 @@ input, not an ordinary build artifact.
 - Target `riscv32imac-unknown-none-elf`, built from source via
   `-Zbuild-std` (`[unstable] build-std = ["alloc", "core"]` in
   `.cargo/config.toml`).
-- `espflash` 4.5.0.
+- `espflash`, for flashing. No version is pinned by the repository
+  (`cargo install espflash`); the development environment has 4.5.0.
 - Node.js + npm, only if you will change the web UI.
 - Board: ESP32-C5 rev v1.0, 4 MB flash, on `/dev/ttyACM0` (the board's native
   USB-JTAG port; `/dev/ttyUSB0` is a CH340 bridge to the same chip).
