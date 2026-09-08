@@ -424,8 +424,7 @@ fn config_token_provided(req_buf: &[u8]) -> bool {
         // Value: EXACT — a case-insensitive match would accept a
         // different-case rendering of the token and let a guesser authenticate
         // without matching its real case.
-        name.trim().eq_ignore_ascii_case(CONFIG_TOKEN_HEADER)
-            && value.trim() == CONFIG_TOKEN
+        name.trim().eq_ignore_ascii_case(CONFIG_TOKEN_HEADER) && value.trim() == CONFIG_TOKEN
     })
 }
 
