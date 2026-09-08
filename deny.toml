@@ -1,0 +1,124 @@
+# Supply-chain audit configuration for the `esp32-c5-rgb-rs` root package.
+#
+# This file is deliberately NOT tuned until it is green. Every lint level is
+# set to actually surface findings (most defaults are `warn`), and the only
+# exception entries in this file are the ones whose justification is written
+# inline. If a check reports real advisories/duplicates/unknown sources, that
+# is the correct, honest outcome — do not "fix" it by adding ignores.
+
+# Root options
+[graph]
+# The root package's dependencies are heavily feature-gated (the wifi /
+# wifi-net / webserver feature sets pull in the entire esp-radio, esp-rtos,
+# embassy-net and reqwless stacks, and esp-hal is itself built with the
+# "unstable" feature). With the default feature set those subtrees would be
+# absent from the audited graph, so the audit would silently skip them.
+# We therefore audit the FULL dependency tree exactly as it is when the
+# firmware is actually built (see `build.sh` and the examples'
+# `required-features`).
+all-features = true
+
+# This section is considered when running `cargo deny check advisories`.
+[advisories]
+# No advisory is ignored. If the RUSTSEC database reports an advisory for a
+# crate in this tree, we want to see it (and fix, pin, or explicitly
+# justify it in a follow-up review).
+ignore = []
+
+# This section is considered when running `cargo deny check licenses`.
+#
+# The allow-list below reflects what the dependency tree ACTUALLY contains
+# (verified by reading every manifest's `license` field in the resolved
+# graph — see .ai_files/CARGO_DENY.md for the full per-crate breakdown).
+# Every entry is one that a resolved crate is licensed under such that no
+# other allowed branch satisfies it. Nothing copyleft and nothing unclear
+# appears in the tree; if that ever changes, add the crate here as a flagged
+# OWNER DECISION, not by silently widening this list.
+[licenses]
+allow = [
+    # Dual-licensed with MIT throughout the tree (the esp-hal family, the
+    # embassy family, serde/serde_json, most of the tree is "MIT OR
+    # Apache-2.0" or a variant thereof).
+    "MIT",
+    "Apache-2.0",
+    # `BSD-3-Clause`: `subtle 2.6.1` (a constant-time crypto helper, pulled
+    # by the p256/ECDH stack under reqwless) is licensed under BSD-3-Clause
+    # alone. Permissive, OSI-approved, non-copyleft, compatible with the
+    # project's Apache-2.0 licence.
+    "BSD-3-Clause",
+    # `Unicode-3.0`: `unicode-ident 1.0.24` is licensed
+    # "(MIT OR Apache-2.0) AND Unicode-3.0". The AND component means the
+    # Unicode licence itself must be accepted (the MIT/Apache branch alone
+    # is not sufficient for an AND). The Unicode licence grants broad reuse
+    # of the data; it is not copyleft.
+    "Unicode-3.0",
+    # `ISC`: the four RISC-V core crates (`riscv`, `riscv-pac`, `riscv-rt`,
+    # `riscv-target-parser`) are licensed ISC. The ESP32-C5 is a RISC-V
+    # chip, so these are fundamental and unavoidable. ISC is OSI-approved,
+    # FSF Free/Libre, and effectively a simplified permissive BSD/MIT —
+    # non-copyleft and compatible with the project's Apache-2.0 licence.
+    "ISC",
+    # `0BSD` (Zero-Clause BSD): `smoltcp` and its `managed` heap allocator —
+    # the TCP/IP stack behind `embassy-net` for the wifi-net feature — are
+    # licensed 0BSD. It is the most permissive of the BSD family (OSI-
+    # approved, no conditions beyond optional attribution) and is not
+    # copyleft.
+    "0BSD",
+]
+confidence-threshold = 0.8
+
+[licenses.private]
+# The root package and its path deps (`led-core`,
+# `thirdparty/esp-wifi-sys-esp32c5`) are not published to any registry.
+# Their licences (Apache-2.0, Apache-2.0, and MIT OR Apache-2.0 per their
+# respective Cargo.toml files) are already covered by the allow-list above,
+# so there is nothing to skip here — keep this honest and check them too.
+ignore = false
+
+# This section is considered when running `cargo deny check bans`.
+[bans]
+# Multiple versions of the same crate: `warn`, not `deny`, so that a
+# legitimate duplicate pulled by two different branches of the tree is
+# REPORTED (and must be justified in a comment) rather than silently
+# allowed or immediately failing the build.
+multiple-versions = "warn"
+wildcards = "allow"
+highlight = "all"
+# The root crate's own `[dependencies]` do not opt out of default features
+# except where Cargo.toml says so explicitly; keep the default lint levels.
+workspace-default-features = "allow"
+external-default-features = "allow"
+# No crate is banned, and no crate is allowed. An empty `allow` list is the
+# honest choice: every dependency is reviewed against the tree, not waved
+# through.
+allow = []
+deny = []
+# No crate/version is skipped for duplicate detection. If the run reports a
+# genuine duplicate, the correct response is to investigate it (or document
+# why it is unavoidable), not to skip it here.
+skip = []
+skip-tree = []
+
+# This section is considered when running `cargo deny check sources`.
+[sources]
+unknown-registry = "warn"
+# `warn` so that any git source not explicitly allowed below is still
+# reported; the one we DO allow is documented below with its reason.
+unknown-git = "warn"
+allow-registry = ["https://index.crates.io"]
+# The project deliberately pins 7 crates (esp-hal, esp-bootloader-esp-idf,
+# esp-alloc, esp-radio, esp-rtos, esp-println, esp-backtrace) to a single,
+# explicitly chosen git revision of the esp-hal repository — see
+# Cargo.toml, all `rev = "545763c13502aaad9206f28a847ea9cc58880bcc"`.
+# That pin is a documented, intentional supply-chain decision (the project
+# does not track esp-hal's moving `main` branch), not an accidental
+# transitive pull. Allowing this one URL is therefore legitimate; it is
+# NOT a blanket allow — any OTHER git source will still be flagged by
+# `unknown-git = "warn"` above.
+allow-git = [
+    # Justification: all 7 esp-hal-family crates in Cargo.toml are
+    # intentionally pinned to rev 545763c13502aaad9206f28a847ea9cc58880bcc
+    # of this exact repository; see the `rev = "545763c…"` entries in
+    # Cargo.toml.
+    "https://github.com/esp-rs/esp-hal",
+]
