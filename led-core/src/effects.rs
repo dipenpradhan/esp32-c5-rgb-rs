@@ -4,8 +4,10 @@
 //! This is the "overall behavior" of the LED, made host-testable: given a
 //! config, [`cycle_steps`] returns exactly the (color, hold) frames the LED
 //! driver will emit for one pass through all effects — in order, with the
-//! exact durations. The firmware's `led_task` is a thin loop that replays
-//! this; tests assert on it.
+//! exact durations. The firmware never calls this function — its loops
+//! re-derive the same sequence inline from `config.effects`
+//! (`src/main.rs`, `examples/web_server.rs`) — and the two are intended to
+//! agree. Tests assert on the model.
 
 use alloc::vec::Vec;
 
